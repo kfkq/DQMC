@@ -85,7 +85,9 @@ int main(int argc, char** argv) {
     }
 
     // measurement container
-    scalarObservable density("density", rank);
+    MeasurementManager measurements;
+    measurements.add("density", rank, Observables::calculate_density);
+    measurements.add("doubleOcc", rank, Observables::calculate_doubleOccupancy);
 
     // ----------------------------------------------------------------- 
     //                     Start of DQMC simulation
@@ -101,16 +103,14 @@ int main(int argc, char** argv) {
     for (int ibin = 0; ibin < n_bins; ++ibin) {
         for (int isweep = 0; isweep < n_sweeps; ++isweep) {
             sim.sweep_0_to_beta(greens, propagation_stacks);
-
-            density += Observables::calculate_density(greens);
+            measurements.measure(greens); 
 
             sim.sweep_beta_to_0(greens, propagation_stacks);
-
-            density += Observables::calculate_density(greens);
+            measurements.measure(greens); 
         }
 
-        density.accumulate();
-        density.reset();
+        measurements.accumulate_all();
+        measurements.reset_all();
     }
     
     // ----------------------------------------------------------------- 

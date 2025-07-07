@@ -106,11 +106,36 @@ public:
     std::string get_filename() const { return filename; }
 };
 
+class MeasurementManager {
+private:
+    std::vector<scalarObservable> observables_;
+    std::vector<std::function<double(const std::vector<GF>&)>> calculators_;  
+    
+public:
+    void add(const std::string& name, int rank, 
+             std::function<double(const std::vector<GF>&)> calculator) {  
+        observables_.emplace_back(name, rank);
+        calculators_.push_back(calculator);
+    }
+
+    void measure(const std::vector<GF>& greens) {  
+        for (size_t i = 0; i < calculators_.size(); ++i) {
+            observables_[i] += calculators_[i](greens); 
+        }
+    }
+
+    void accumulate_all() {
+        for (auto& obs : observables_) obs.accumulate();
+    }
+
+    void reset_all() {
+        for (auto& obs : observables_) obs.reset();
+    }
+};
+
 namespace Observables {
-
-    // Density calculation
-    double calculate_density(std::vector<GF>&  greens) ;
-
+    double calculate_density(const std::vector<GF>& greens); 
+    double calculate_doubleOccupancy(const std::vector<GF>& greens);  
 }
 
 #endif
