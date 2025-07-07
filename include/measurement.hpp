@@ -109,7 +109,7 @@ public:
 namespace Observables {
 
     // Density calculation
-    double calculate_density(DQMC& sim);
+    double calculate_density(std::vector<GF>&  greens) ;
 
 }
 

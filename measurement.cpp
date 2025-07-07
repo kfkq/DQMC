@@ -4,15 +4,18 @@ using GreenFunc = arma::mat;
 
 namespace Observables {
 
-double calculate_density(DQMC& sim) 
+double calculate_density(std::vector<GF>&  greens) 
 {
-    GreenFunc gttup = sim.get_Gttup();
-    GreenFunc gttdn = sim.get_Gttdn();
 
-    double density_up = 1.0 - arma::trace(gttup) / gttup.n_rows;
-    double density_dn = 1.0 - arma::trace(gttdn) / gttdn.n_rows;
+    double density_tot = 0.0;
+    const int n_flavor = greens.size();
+    const int ns = greens[0].Gtt.n_rows;
+
+    for (int nfl = 0; nfl < n_flavor; nfl++) {
+        density_tot += 1.0 - arma::trace(greens[nfl].Gtt) / ns;
+    }    
     
-    return density_up + density_dn;  // Total density
+    return density_tot;
 }
 
 } //end of namespace

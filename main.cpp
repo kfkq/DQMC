@@ -1,6 +1,7 @@
+#include "linalg.hpp"
 #include "lattice.hpp"
-#include "model.hpp" 
 #include "dqmc.hpp"
+#include "model.hpp" 
 #include "measurement.hpp"
 
 #include <toml.hpp>
@@ -65,9 +66,23 @@ int main(int argc, char** argv) {
 
     // Model initialization
     auto hubbard = model::HubbardAttractiveU(lat, t, U, mu, dtau, nt);
+    
+    // model dependent DQMC factorization. Hubbard model are factorized by spin index.
+    int n_flavor = hubbard.n_flavor(); 
 
     // DQMC simulation initialization
     auto sim = DQMC(hubbard, n_stab);
+
+    // propagation stacks initialization
+    std::vector<linalg::LDRStack> propagation_stacks(n_flavor);
+    for (int nfl = 0; nfl < n_flavor; nfl++) {
+        propagation_stacks[nfl] = sim.init_stacks(nfl);
+    }
+
+    std::vector<GF> greens(n_flavor);
+    for (int nfl = 0; nfl < n_flavor; nfl++) {
+        greens[nfl] = sim.init_greenfunctions(propagation_stacks[nfl]);
+    }
 
     // measurement container
     scalarObservable density("density", rank);
@@ -78,20 +93,20 @@ int main(int argc, char** argv) {
 
     // thermalization
     for (int i = 0; i < n_therms; ++i) {
-        sim.sweep_0_to_beta();
-        sim.sweep_beta_to_0();
+        sim.sweep_0_to_beta(greens, propagation_stacks);
+        sim.sweep_beta_to_0(greens, propagation_stacks);
     }
 
     // measurement sweeps
     for (int ibin = 0; ibin < n_bins; ++ibin) {
         for (int isweep = 0; isweep < n_sweeps; ++isweep) {
-            sim.sweep_0_to_beta();
+            sim.sweep_0_to_beta(greens, propagation_stacks);
 
-            density += Observables::calculate_density(sim);
+            density += Observables::calculate_density(greens);
 
-            sim.sweep_beta_to_0();
+            sim.sweep_beta_to_0(greens, propagation_stacks);
 
-            density += Observables::calculate_density(sim);
+            density += Observables::calculate_density(greens);
         }
 
         density.accumulate();

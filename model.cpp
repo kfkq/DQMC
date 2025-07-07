@@ -1,3 +1,4 @@
+#include "dqmc.hpp"
 #include "model.hpp"
 
 namespace model {
@@ -35,6 +36,7 @@ namespace model {
         U_(U),
         mu_(mu),
         dtau_(dtau),
+        n_flavor_(1),
         
         ns_(lat.N_sites),
         nt_(nt)
@@ -131,13 +133,14 @@ namespace model {
     /
     --------------------------------------------------------------------------------------------- */
 
-    Matrix HubbardAttractiveU::calc_B(int t) {
+    Matrix HubbardAttractiveU::calc_B(int t, int nfl) {
         /* 
         / Calculate B matrix at time slice t (same for both spins in attractive Hubbard)
         /       B = exp(alpha * s_{t,i}) * exp(-dtau * K)
         /
         / input parameters:
         /       t: Global time index
+        /     nfl: spin index (doesn't matter since n_flavor = 1 in this model)
         /
         / return:
         /       B matrix at time t
@@ -149,22 +152,15 @@ namespace model {
 
         return linalg::diag_mul_mat(expV, expK_); 
     }
-
-    Matrix HubbardAttractiveU::calc_Bup(int t) {
-        return calc_B(t);
-    }
-
-    Matrix HubbardAttractiveU::calc_Bdn(int t) {
-        return calc_B(t);
-    }
     
-    Matrix HubbardAttractiveU::calc_invB(int t) {
+    Matrix HubbardAttractiveU::calc_invB(int t, int nfl) {
         /* 
         / Calculate inverse of B matrix at time slice t
         /       B^{-1} = exp(dtau * K) * exp(-alpha * s_{t,i})
         /
         / input parameters:
         /       t: Global time index
+        /     nfl: spin index (doesn't matter since it is exactly same for this model)
         /
         / return:
         /       B^{-1} matrix at time t
@@ -175,14 +171,6 @@ namespace model {
         }
 
         return linalg::mat_mul_diag(invexpK_, expV);
-    }
-
-    Matrix HubbardAttractiveU::calc_invBup(int t) {
-        return calc_invB(t);
-    }
-    
-    Matrix HubbardAttractiveU::calc_invBdn(int t) {
-        return calc_invB(t);
     }
 
     /* --------------------------------------------------------------------------------------------- 
@@ -217,11 +205,19 @@ namespace model {
         gtt += prefactor * U * V;
     }
 
-    double HubbardAttractiveU::update_time_slice(GreenFunc& Gttup, GreenFunc& Gttdn, int l) {
+    double HubbardAttractiveU::update_time_slice(std::vector<GF>& greens, int l) {
         /*
-        / update Green's function and fields in one time slice by go through all space index
+        / Update Green's function and fields in one time slice by going through all space indices
+        /
+        / Args:
+        /    greens: Vector of Green's functions (expected size = 1 for attractive Hubbard model)
+        /    l: Time slice index to update
+        /    
+        / Returns:
+        /    Acceptance rate (fraction of accepted updates)
         */
         assert(l >= 0 && l < nt_);
+        assert(greens.size() == 1);
 
         int accepted_ns = 0;
         for (int i = 0; i < ns_; ++i) {
@@ -229,23 +225,19 @@ namespace model {
             double delta = std::exp(-2.0 * alpha_ * fields_(l, i)) - 1.0;
             
             // calculate acceptance ratio at (l, i)
-            double acc_ratio_up = acceptance_ratio(Gttup, delta, i);
-            double acc_ratio_dn = acceptance_ratio(Gttdn, delta, i);
-
-            double bosonic_ratio = 1.0 / (delta + 1.0); // non zero, since HS decomposition gives (n_up + n_dn - 1)^2
-
-            double acc_ratio    = bosonic_ratio * acc_ratio_up * acc_ratio_dn;
+            double fermionic_ratio = acceptance_ratio(greens[0].Gtt, delta, i);
+            double bosonic_ratio   = 1.0 / (delta + 1.0); // non zero, since HS decomposition gives (n_up + n_dn - 1)^2
+            double acc_ratio       = bosonic_ratio * std::pow(fermionic_ratio, 2);
 
             // propose an metropolis update if we accept within probability p = `acc_ratio`
             double metropolis_p = std::min(1.0, std::abs(acc_ratio));
             if (utility::random::bernoulli(metropolis_p)) {
                 accepted_ns += 1;
-                update_greens(Gttup, delta, i);
-                update_greens(Gttdn, delta, i);
+                update_greens(greens[0].Gtt, delta, i);
                 update_fields(l, i);
             }
         }
-        return accepted_ns / ns_;
+        return static_cast<double>(accepted_ns) / ns_;
     }
 
 } // end namespace

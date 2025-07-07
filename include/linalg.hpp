@@ -278,28 +278,49 @@ namespace linalg {
 
     class LDRStack {
     private:
-        const size_t n_stack_;      // Number of stacks (nt/n_stab)
+        size_t n_stack_ = 0;                // Changed from const to mutable
         std::vector<LDR> stack_;
 
     public:
-        // Constructor takes actual stack size
+        // default constructor
+        LDRStack() = default;
+
+        // Constructor
         explicit LDRStack(size_t n_stack) 
             : n_stack_(n_stack), stack_(n_stack) {}
         
-        // Direct access by index
+        // move operations
+        LDRStack(LDRStack&& other) noexcept
+            : n_stack_(other.n_stack_),
+            stack_(std::move(other.stack_)) {}
+        
+        LDRStack& operator=(LDRStack&& other) noexcept {
+            if (this != &other) {
+                n_stack_ = other.n_stack_;
+                stack_ = std::move(other.stack_);
+            }
+            return *this;
+        }
+        
+        // Disallow copying (if not needed)
+        LDRStack(const LDRStack&) = delete;
+        LDRStack& operator=(const LDRStack&) = delete;
+
+        // Element access
         LDR& operator[](size_t idx) { 
             if (idx >= n_stack_) throw std::out_of_range("LDR Stack index out of bounds");
             return stack_[idx]; 
         }
+        
         const LDR& operator[](size_t idx) const { 
             if (idx >= n_stack_) throw std::out_of_range("LDR Stack index out of bounds");
             return stack_[idx]; 
         }
         
-        // Stack properties
-        constexpr size_t size() const { return n_stack_; }
+        // Capacity
+        constexpr size_t size() const noexcept { return n_stack_; }
         
-        // Direct assignment
+        // Modification
         void set(size_t idx, const LDR& ldr) {
             if (idx >= n_stack_) throw std::out_of_range("LDR Stack index out of bounds");
             stack_[idx] = ldr;
