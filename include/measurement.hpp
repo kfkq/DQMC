@@ -1,6 +1,7 @@
 #ifndef MEASUREMENT_HPP
 #define MEASUREMENT_HPP
 
+#include <mpi.h>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -12,130 +13,118 @@
 
 class scalarObservable {
 private:
-    double sum = 0.0;
-    double sum_sq = 0.0;
-    int count = 0;
-    std::string filename;
+    std::string filename_;
+    const int precision_ = 10;
+    const int mean_width_ = 20;
+    const int var_width_ = 20;
     
-    // Formatting parameters (customizable)
-    const int precision = 10;
-    const int mean_width = 20;
-    const int var_width = 20;
+    // Local accumulation
+    double local_sum_ = 0.0;
+    double local_sum_sq_ = 0.0;
+    int local_count_ = 0;
+    
+    // Global accumulation
+    double global_sum_ = 0.0;
+    double global_sum_sq_ = 0.0;
+    int global_count_ = 0;
 
-    // Create directory if it doesn't exist
-    bool ensure_results_dir() {
-        struct stat info;
-        if (stat("results", &info) != 0) {
-            // Directory doesn't exist, try to create it
-            #ifdef _WIN32
-                int status = _mkdir("results");
-            #else
-                int status = mkdir("results", 0755);
-            #endif
-            if (status != 0) {
-                std::cerr << "Error creating results directory" << std::endl;
-                return false;
+    bool ensure_results_dir(int rank) {
+        if (rank == 0) {
+            struct stat info;
+            if (stat("results", &info) != 0) {
+                #ifdef _WIN32
+                    int status = _mkdir("results");
+                #else
+                    int status = mkdir("results", 0755);
+                #endif
+                if (status != 0) return false;
             }
         }
+        MPI_Barrier(MPI_COMM_WORLD);
         return true;
     }
 
 public:
-    // Constructor takes MPI rank and creates rank-specific filename in results/
-    scalarObservable(const std::string& base_filename, int mpi_rank) 
-    {
-        if (!ensure_results_dir()) {
+    scalarObservable(const std::string& filename, int rank) : filename_("results/" + filename) {
+        if (!ensure_results_dir(rank)) {
             throw std::runtime_error("Could not create results directory");
         }
         
-        // Create filename with MPI rank (padded with leading zero)
-        std::ostringstream oss;
-        oss << "results/" << base_filename << "_" 
-            << std::setw(2) << std::setfill('0') << mpi_rank << ".dat";
-        filename = oss.str();
-        
-        // Create file and write header
-        std::ofstream outfile(filename);
-        if (!outfile) {
-            std::cerr << "Error creating file: " << filename << std::endl;
-            throw std::runtime_error("Could not create output file");
+        if (rank == 0) {
+            std::ofstream out(filename_);
+            out << "#" << std::setw(mean_width_-1) << "mean" 
+                << std::setw(var_width_) << "variance\n";
         }
-        // Aligned header
-        outfile << "#" 
-               << std::setw(mean_width-1) << "mean" 
-               << std::setw(var_width) << "variance\n";
-    }
-
-    // += operator for accumulation
-    scalarObservable& operator+=(double value) {
-        sum += value;
-        sum_sq += value * value;
-        count++;
-        return *this;
     }
     
-    // Calculate and append formatted output
-    void accumulate() {
-        if (count == 0) {
-            std::cerr << "Warning: No data accumulated\n";
-            return;
+    void operator+=(double value) {
+        local_sum_ += value;
+        local_sum_sq_ += value * value;
+        local_count_++;
+    }
+    
+    void accumulate(MPI_Comm comm) {
+        MPI_Allreduce(&local_sum_, &global_sum_, 1, MPI_DOUBLE, MPI_SUM, comm);
+        MPI_Allreduce(&local_sum_sq_, &global_sum_sq_, 1, MPI_DOUBLE, MPI_SUM, comm);
+        MPI_Allreduce(&local_count_, &global_count_, 1, MPI_INT, MPI_SUM, comm);
+        
+        int rank;
+        MPI_Comm_rank(comm, &rank);
+        if (rank == 0) {
+            double mean = global_sum_ / global_count_;
+            double variance = (global_sum_sq_ / global_count_) - (mean * mean);
+            
+            std::ofstream out(filename_, std::ios::app);
+            out << std::fixed << std::setprecision(precision_)
+                << std::setw(mean_width_) << mean
+                << std::setw(var_width_) << variance << "\n";
         }
-        
-        double mean = sum / count;
-        double variance = (sum_sq / count) - (mean * mean);
-        
-        std::ofstream outfile(filename, std::ios::app);
-        if (!outfile) {
-            std::cerr << "Error opening file: " << filename << std::endl;
-            return;
-        }
-        
-        // Fixed-width output
-        outfile << std::fixed << std::setprecision(precision)
-               << std::setw(mean_width) << mean 
-               << std::setw(var_width) << variance << "\n";
     }
     
     void reset() {
-        sum = 0.0;
-        sum_sq = 0.0;
-        count = 0;
+        local_sum_ = local_sum_sq_ = 0.0;
+        local_count_ = 0;
     }
-
-    // Getter for the generated filename
-    std::string get_filename() const { return filename; }
 };
 
 class MeasurementManager {
 private:
     std::vector<scalarObservable> observables_;
-    std::vector<std::function<double(const std::vector<GF>&)>> calculators_;  
+    std::vector<std::function<double(const std::vector<GF>&)>> calculators_;
+    MPI_Comm comm_;
+    int rank_;
     
 public:
-    void add(const std::string& name, int rank, 
-             std::function<double(const std::vector<GF>&)> calculator) {  
-        observables_.emplace_back(name, rank);
+    MeasurementManager(MPI_Comm comm, int rank) : comm_(comm), rank_(rank) {}
+
+    void add(const std::string& name, 
+             std::function<double(const std::vector<GF>&)> calculator) {
+        observables_.emplace_back(name + ".dat", rank_);
         calculators_.push_back(calculator);
     }
 
-    void measure(const std::vector<GF>& greens) {  
+    void measure(const std::vector<GF>& greens) {
         for (size_t i = 0; i < calculators_.size(); ++i) {
-            observables_[i] += calculators_[i](greens); 
+            observables_[i] += calculators_[i](greens);
         }
     }
 
-    void accumulate_all() {
-        for (auto& obs : observables_) obs.accumulate();
+    void accumulate() {
+        for (auto& obs : observables_) {
+            obs.accumulate(comm_);
+        }
     }
 
-    void reset_all() {
-        for (auto& obs : observables_) obs.reset();
+    void reset() {
+        for (auto& obs : observables_) {
+            obs.reset();
+        }
     }
 };
 
 namespace Observables {
-    double calculate_density(const std::vector<GF>& greens); 
-    double calculate_doubleOccupancy(const std::vector<GF>& greens);  
+    double calculate_density(const std::vector<GF>& greens);
+    double calculate_doubleOccupancy(const std::vector<GF>& greens);
 }
 
 #endif

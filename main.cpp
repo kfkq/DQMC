@@ -85,9 +85,9 @@ int main(int argc, char** argv) {
     }
 
     // measurement container
-    MeasurementManager measurements;
-    measurements.add("density", rank, Observables::calculate_density);
-    measurements.add("doubleOcc", rank, Observables::calculate_doubleOccupancy);
+    MeasurementManager measurements(MPI_COMM_WORLD, rank);
+    measurements.add("density", Observables::calculate_density);
+    measurements.add("doubleOcc", Observables::calculate_doubleOccupancy);
 
     // ----------------------------------------------------------------- 
     //                     Start of DQMC simulation
@@ -109,8 +109,8 @@ int main(int argc, char** argv) {
             measurements.measure(greens); 
         }
 
-        measurements.accumulate_all();
-        measurements.reset_all();
+        measurements.accumulate();
+        measurements.reset();
     }
     
     // ----------------------------------------------------------------- 
