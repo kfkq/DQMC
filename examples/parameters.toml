@@ -1,17 +1,17 @@
 [lattice]
 type = "square"
-Lx = 4
-Ly = 4
+Lx = 6
+Ly = 6
 
 [hubbard]
-U =  2.0              # On-site interaction strength
+U =  4.0              # On-site interaction strength
 t =  1.0              # Hopping parameters
-mu = 0.0             # Chemical potential
+mu = -1.0             # Chemical potential
 
 [simulation]
-beta = 1.0           # Inverse temperature
-nt = 10              # Number of Imaginary time step
-n_therms = 500       # Number of thermalization sweeps
-n_sweeps = 200      # Number of Monte Carlo sweeps
+beta = 6.0           # Inverse temperature
+nt = 100              # Number of Imaginary time step
+n_therms = 1000       # Number of thermalization sweeps
+n_sweeps = 50      # Number of Monte Carlo sweeps
 n_bins = 100         # Number of total bins. each bin contain average observable after n_sweeps 
-n_stab = 5          # Length of numerical stabilization in imaginary time propagation
+n_stab = 10          # Length of numerical stabilization in imaginary time propagation

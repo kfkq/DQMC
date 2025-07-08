@@ -2,3 +2,4 @@
 .env
 build/
 examples/results/
+examples/parameters.toml

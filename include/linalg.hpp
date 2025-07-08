@@ -215,13 +215,12 @@ namespace linalg {
             Matrix LD = mat_mul_diag(ldr.L(), d_min);
             
             // Step 5: Form M = R^{-1} D_max^{-1} + L D_min
-            Matrix M = RD + LD;
+            Matrix M = RD + LD;            
             
-            // Step 6: Solve M X = I for X = M^{-1}
-            Matrix M_inv = arma::inv(M);
-            
-            // Step 7: Return G = R^{-1} D_max^{-1} M^{-1}
-            return RD * M_inv;
+            // Step 6: Return G = R^{-1} D_max^{-1} M^{-1}
+            Matrix G;
+            arma::solve(G, M.t(), RD.t());
+            return G.t();
         }
 
         static GreenFunc inv_eye_plus_ldr_mul_ldr(const LDR& ldr1, const LDR& ldr2) {
@@ -269,10 +268,11 @@ namespace linalg {
 
             // Step 6: calculate M^{-1} = (D1_max^{-1} * L1^† * R2^{-1} * D2_max^{-1} + D1_min * R1 * L2 * D2_min)^{-1}
             Matrix M = DL1 * RD2 + DR1 * LD2;
-            Matrix M_inv = arma::inv(M);
 
             // Step 7: return G = R2^{-1} * D2_max^{-1} * M^{-1} * D1_max^{-1} * L1^†
-            return RD2 * M_inv * DL1;
+            Matrix X;
+            arma::solve(X, M, DL1); // solve X with linear equation M * X = D1_max^{-1} * L1^†
+            return RD2 * X; 
         }
     };
 
