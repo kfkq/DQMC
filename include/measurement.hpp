@@ -125,6 +125,7 @@ public:
 namespace Observables {
     double calculate_density(const std::vector<GF>& greens);
     double calculate_doubleOccupancy(const std::vector<GF>& greens);
+    double calculate_swavePairing(const std::vector<GF>& greens);
 }
 
 #endif

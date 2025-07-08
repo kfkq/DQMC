@@ -34,5 +34,22 @@ double calculate_doubleOccupancy(const std::vector<GF>&  greens)
     return d_occ;
 }
 
-} //end of namespace
+double calculate_swavePairing(const std::vector<GF>&  greens) {
+    
+    const int ns = greens[0].Gtt.n_rows;
+    const GreenFunc& gtt = greens[0].Gtt;
+    GreenFunc gtt_conj = arma::eye<GreenFunc>(ns, ns) - gtt;
+
+    // calculate static swave pairing, q = 0
+    double swave = 0.0;
+    for(int i = 0; i < ns; i++) {
+        for(int j = 0; j < ns; j++) {
+            swave += gtt_conj(j, i) * gtt_conj(j, i);
+            swave += gtt(i,j) * gtt(i,j);
+        }
+    }
+    return swave/ns;
+}
+
+} //end of Observables namespace
 

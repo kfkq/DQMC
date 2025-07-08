@@ -88,6 +88,7 @@ int main(int argc, char** argv) {
     MeasurementManager measurements(MPI_COMM_WORLD, rank);
     measurements.add("density", Observables::calculate_density);
     measurements.add("doubleOcc", Observables::calculate_doubleOccupancy);
+    measurements.add("swave", Observables::calculate_swavePairing);
 
     // ----------------------------------------------------------------- 
     //                     Start of DQMC simulation
