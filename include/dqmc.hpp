@@ -10,6 +10,7 @@
 #ifndef DQMC_HPP
 #define DQMC_HPP
 
+#define ARMA_DONT_PRINT_FAST_MATH_WARNING
 #include "model.hpp"
 #include "linalg.hpp"
 #include <armadillo>
