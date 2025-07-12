@@ -53,7 +53,7 @@ public:
         if (rank == 0) {
             std::ofstream out(filename_);
             out << "#" << std::setw(mean_width_-1) << "mean" 
-                << std::setw(var_width_) << "variance\n";
+                << std::setw(var_width_) << "std_err\n"; 
         }
     }
     
@@ -73,11 +73,16 @@ public:
         if (rank == 0) {
             double mean = global_sum_ / global_count_;
             double variance = (global_sum_sq_ / global_count_) - (mean * mean);
+            double std_err = 0.0;                                                                                                                                                           
+            if (global_count_ > 1) {                                                                                                                                                        
+                // Standard error of the mean                                                                                                                                               
+                std_err = std::sqrt(variance / (global_count_ - 1));                                                                                                         
+            }
             
             std::ofstream out(filename_, std::ios::app);
             out << std::fixed << std::setprecision(precision_)
                 << std::setw(mean_width_) << mean
-                << std::setw(var_width_) << variance << "\n";
+                << std::setw(var_width_) << std_err << "\n";
         }
     }
     

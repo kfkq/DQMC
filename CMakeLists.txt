@@ -12,6 +12,13 @@ find_package(MPI REQUIRED)
 # Find Armadillo
 find_package(Armadillo REQUIRED)
 
+# Find FFTW3
+find_path(FFTW_INCLUDE_DIR fftw3.h)
+find_library(FFTW_LIBRARY NAMES fftw3)
+if(NOT FFTW_LIBRARY)
+    message(FATAL_ERROR "FFTW3 library not found")
+endif()
+
 # MKL settings
 if(DEFINED ENV{MKLROOT})
     set(MKL_ROOT $ENV{MKLROOT})
@@ -35,6 +42,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/external
     ${ARMADILLO_INCLUDE_DIRS}
     ${MKL_INCLUDE_DIR}
+    ${FFTW_INCLUDE_DIR}
 )
 
 # Source files
@@ -49,10 +57,11 @@ set(SOURCES
 add_executable(dqmc_hubbard ${SOURCES})
 
 # Link libraries
-target_link_libraries(dqmc_hubbard 
+target_link_libraries(dqmc_hubbard
     ${MPI_CXX_LIBRARIES}
     ${ARMADILLO_LIBRARIES}
     ${MKL_LIBRARIES}
+    ${FFTW_LIBRARY}
 )
 
 # Set Armadillo to use MKL
