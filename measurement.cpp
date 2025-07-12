@@ -45,7 +45,6 @@ double calculate_swavePairing(const std::vector<GF>&  greens) {
     for(int i = 0; i < ns; i++) {
         for(int j = 0; j < ns; j++) {
             swave += gtt_conj(j, i) * gtt_conj(j, i);
-            swave += gtt(i,j) * gtt(i,j);
         }
     }
     return swave/ns;
