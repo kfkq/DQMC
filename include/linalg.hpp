@@ -25,20 +25,22 @@ namespace linalg {
 
     // Multiply diagonal matrix (represented by vector) with matrix from left: D * M
     inline Matrix diag_mul_mat(const Vector& diag, const Matrix& mat) {
-        Matrix result = mat;
-        for (arma::uword i = 0; i < result.n_cols; ++i) {
-            result.col(i) %= diag;  // element-wise multiplication
-        }
-        return result;
+        // Matrix result = mat;
+        // for (arma::uword i = 0; i < result.n_cols; ++i) {
+        //     result.col(i) %= diag;  // element-wise multiplication
+        // }
+        // return result;
+        return arma::diagmat(diag) * mat;
     }
 
     // Multiply matrix with diagonal matrix (represented by vector) from right: M * D
     inline Matrix mat_mul_diag(const Matrix& mat, const Vector& diag) {
-        Matrix result = mat;
-        for (arma::uword i = 0; i < result.n_rows; ++i) {
-            result.row(i) %= diag.t();  // element-wise multiplication with transposed diag
-        }
-        return result;
+        // Matrix result = mat;
+        // for (arma::uword i = 0; i < result.n_rows; ++i) {
+        //     result.row(i) %= diag.t();  // element-wise multiplication with transposed diag
+        // }
+        // return result;
+        return mat * arma::diagmat(diag);
     }
 
     class LDR {
@@ -204,20 +206,18 @@ namespace linalg {
                 }
             }
             
-            // Step 2: Compute R^{-1}
-            Matrix R_inv = arma::inv(ldr.R());
-            
-            // Step 3: Compute R^{-1} D_max^{-1}
+            // Step 2: Solve R * X = diag(d_max_inv). X = (which is R^{-1} D_max^{-1})
             Vector d_max_inv = 1.0 / d_max;
-            Matrix RD = mat_mul_diag(R_inv, d_max_inv);
+            Matrix RD;
+            arma::solve(RD, ldr.R(), arma::diagmat(d_max_inv));
             
-            // Step 4: Compute L D_min
+            // Step 3: Compute L D_min
             Matrix LD = mat_mul_diag(ldr.L(), d_min);
             
-            // Step 5: Form M = R^{-1} D_max^{-1} + L D_min
+            // Step 4: Form M = R^{-1} D_max^{-1} + L D_min
             Matrix M = RD + LD;            
             
-            // Step 6: Return G = R^{-1} D_max^{-1} M^{-1}
+            // Step 5: Return G = R^{-1} D_max^{-1} M^{-1}
             Matrix G;
             arma::solve(G, M.t(), RD.t());
             return G.t();
@@ -251,10 +251,10 @@ namespace linalg {
                 }
             }
 
-            // Step 2: calculate R2^{-1} * D2_max^{-1}
-            Matrix R2_inv = arma::inv(ldr2.R());
+            // Step 2: calculate R2^{-1} * D2_max^{-1} by solving R2 * X = D2_max^{-1}
             Vector d2_max_inv = 1.0 / d2_max;
-            Matrix RD2 = mat_mul_diag(R2_inv, d2_max_inv);
+            Matrix RD2;
+            arma::solve(RD2, ldr2.R(), arma::diagmat(d2_max_inv));
 
             // Step 3: calculate D1_max^{-1} * L1^†
             Vector d1_max_inv = 1.0 / d1_max;
@@ -266,13 +266,14 @@ namespace linalg {
             // Step 5: calculate L2 * D2_min
             Matrix LD2 = mat_mul_diag(ldr2.L(), d2_min);
 
-            // Step 6: calculate M^{-1} = (D1_max^{-1} * L1^† * R2^{-1} * D2_max^{-1} + D1_min * R1 * L2 * D2_min)^{-1}
+            // Step 6: calculate M = (D1_max^{-1} * L1^† * R2^{-1} * D2_max^{-1} + D1_min * R1 * L2 * D2_min)
             Matrix M = DL1 * RD2 + DR1 * LD2;
 
             // Step 7: return G = R2^{-1} * D2_max^{-1} * M^{-1} * D1_max^{-1} * L1^†
+            // Solve M * X = DL1 for X, then multiply by RD2
             Matrix X;
-            arma::solve(X, M, DL1); // solve X with linear equation M * X = D1_max^{-1} * L1^†
-            return RD2 * X; 
+            arma::solve(X, M, DL1);
+            return RD2 * X;
         }
     };
 

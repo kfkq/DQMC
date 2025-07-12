@@ -1,6 +1,6 @@
+#include "dqmc.hpp"
 #include "linalg.hpp"
 #include "lattice.hpp"
-#include "dqmc.hpp"
 #include "model.hpp" 
 #include "measurement.hpp"
 
