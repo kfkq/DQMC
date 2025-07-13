@@ -6,7 +6,8 @@
 
 #include <toml.hpp>
 #include <iostream>
-#include <ctime>
+#include <iomanip>
+#include <chrono>
 #include <string>
 
 #include <mpi.h>
@@ -73,15 +74,26 @@ int main(int argc, char** argv) {
     // DQMC simulation initialization
     auto sim = DQMC(hubbard, n_stab);
 
-    // propagation stacks initialization
+    // propagation stacks and greens initialization
     std::vector<linalg::LDRStack> propagation_stacks(n_flavor);
+    std::vector<GF>               greens(n_flavor);
     for (int nfl = 0; nfl < n_flavor; nfl++) {
         propagation_stacks[nfl] = sim.init_stacks(nfl);
+        greens[nfl]             = sim.init_greenfunctions(propagation_stacks[nfl]);
     }
 
-    std::vector<GF> greens(n_flavor);
-    for (int nfl = 0; nfl < n_flavor; nfl++) {
-        greens[nfl] = sim.init_greenfunctions(propagation_stacks[nfl]);
+    if (rank == 0) {
+        std::cout << 
+        "=== DQMC Attractive Hubbard ===\n"
+        "Lattice        : " + latt_type + "  " + std::to_string(Lx) + "×" + std::to_string(Ly) + "\n" +
+        "t              : " + std::to_string(t) + "\n" +
+        "U              : " + std::to_string(U) + "\n" +
+        "mu             : " + std::to_string(mu) + "\n" +
+        "β              : " + std::to_string(std::round(beta*1000.0)/1000.0) + "\n" +
+        "Nthermal       : " + std::to_string(n_therms) + "\n" + 
+        "Nsweep per bin : " + std::to_string(n_sweeps) + "\n" + 
+        "Nbin           : " + std::to_string(n_bins) + "\n\n" 
+        << std::flush;
     }
 
     // measurement container
@@ -94,24 +106,68 @@ int main(int argc, char** argv) {
     //                     Start of DQMC simulation
     // -----------------------------------------------------------------
 
+    if (rank == 0) {
+        std::cout << "Start of thermalization \n" << std::flush;
+    }
+
     // thermalization
+    const auto t0_therm = std::chrono::steady_clock::now();
     for (int i = 0; i < n_therms; ++i) {
         sim.sweep_0_to_beta(greens, propagation_stacks);
         sim.sweep_beta_to_0(greens, propagation_stacks);
     }
+    const auto dt_therm = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - t0_therm).count();
+    
+    if (rank == 0) {
+        std::cout << "Thermalization done in " + std::to_string(dt_therm) + " s\n" << std::flush;
+    }
 
+    if (rank == 0) {
+        std::cout << "Start of measurement sweeps \n" << std::flush;
+    }
+
+    double local_time = 0.0;
     // measurement sweeps
     for (int ibin = 0; ibin < n_bins; ++ibin) {
+        const auto t0_bin = std::chrono::steady_clock::now();   // start timer for this bin
         for (int isweep = 0; isweep < n_sweeps; ++isweep) {
             sim.sweep_0_to_beta(greens, propagation_stacks);
-            measurements.measure(greens); 
+            measurements.measure(greens);
 
             sim.sweep_beta_to_0(greens, propagation_stacks);
-            measurements.measure(greens); 
+            measurements.measure(greens);
         }
+        local_time += std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - t0_bin).count();
 
         measurements.accumulate();
         measurements.reset();
+    }
+
+    double total_time = 0.0;
+    MPI_Reduce(&local_time, &total_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
+    if (rank == 0) {
+        const double avg_per_sweep = total_time / (n_bins * n_sweeps * world_size);
+
+        // elapsed wall-time for the whole measurement phase
+        int total_sec = static_cast<int>(local_time);   // local_time already holds the **master** bin-loop time
+        int h = total_sec / 3600;
+        int m = (total_sec % 3600) / 60;
+        int s = total_sec % 60;
+
+        std::cout << "DQMC simulation is finished in "
+                << h << " hours "
+                << m << " minutes "
+                << s << " seconds.\n";
+
+        std::cout << "Average time / sweep = "
+                << std::fixed << std::setprecision(3) << avg_per_sweep << " s\n";
+
+        // average acceptance rate (global)
+        std::cout << "Average acceptance rate = "
+                << std::fixed << std::setprecision(4) << sim.acc_rate() / (2.0 * (n_bins * n_sweeps + n_therms)) << "\n";
     }
     
     // ----------------------------------------------------------------- 

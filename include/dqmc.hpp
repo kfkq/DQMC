@@ -59,6 +59,9 @@ public:
         : model_(model), n_stab_(n_stab), n_stack_(model.nt() / n_stab),
           acc_rate_(0.0), avg_sgn_(1.0) {}
 
+    // Getters
+    double acc_rate() { return acc_rate_; }
+
     // most important initialization before sweeps
     linalg::LDRStack init_stacks(int nfl);
     GF init_greenfunctions(linalg::LDRStack& propagation_stack);

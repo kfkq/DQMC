@@ -258,6 +258,7 @@ void DQMC::sweep_0_to_beta(std::vector<GF>& greens, std::vector<linalg::LDRStack
         }
 
         // update HS field over space given time slice
+        // update HS field over space given time slice
         acc_l = model_.update_time_slice(greens, l);
         acc_rate_ += acc_l / nt;
 
@@ -360,6 +361,5 @@ void DQMC::sweep_beta_to_0(std::vector<GF>& greens, std::vector<linalg::LDRStack
                 std::exit(EXIT_FAILURE);
             }
         }
-        
     }
 }
