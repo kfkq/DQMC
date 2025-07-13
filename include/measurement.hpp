@@ -11,8 +11,7 @@
 #include <string>
 #include <iomanip>
 #include <sstream>
-#include <sys/stat.h> 
-
+#include <sys/stat.h>
 
 class scalarObservable {
 private:
@@ -52,6 +51,8 @@ public:
             out << "#" << std::setw(20) << "value\n" ;
         }
     }
+
+    const std::string& filename() const { return filename_; }
     
     void operator+=(double value) {
         local_sum_ += value;
@@ -111,6 +112,75 @@ public:
         for (auto& obs : scalarObservables_) {
             obs.reset();
         }
+    }
+
+    // jackknife analysis
+    void jacknifeAnalysis() {
+        for (auto& obs : scalarObservables_) {
+            const std::string& fname = obs.filename(); 
+
+            if (rank_ == 0) {                                                   
+                std::ifstream in(fname);                                       
+                if (!in) {                                                     
+                    std::cerr << "Warning: could not open " << fname << " for jackknife\n";
+                    continue;
+                }
+
+                std::vector<double> values;
+                std::string line;
+                while (std::getline(in, line)) {
+                    if (line.empty() || line[0] == '#') continue;
+                    std::istringstream iss(line);
+                    double v;
+                    if (iss >> v) values.push_back(v);
+                }
+                in.close();
+
+                const size_t N = values.size();
+                if (N == 0) {
+                    std::cerr << "Warning: no data in " << fname << "\n";
+                    continue;
+                }
+
+                // Jackknife resampling
+                std::vector<double> jack_samples(N);
+                for (size_t k = 0; k < N; ++k) {
+                    double sum = 0.0;
+                    for (size_t j = 0; j < N; ++j) {
+                        if (j != k) sum += values[j];
+                    }
+                    jack_samples[k] = sum / (N - 1);
+                }
+
+                // Compute per-sample jackknife error
+                std::vector<double> jack_errors(N);
+                for (size_t k = 0; k < N; ++k) {
+                    double sum_sq = 0.0;
+                    double sum    = 0.0;
+                    for (size_t j = 0; j < N; ++j) {
+                        if (j == k) continue;
+                        sum    += values[j];
+                        sum_sq += values[j] * values[j];
+                    }
+                    const double m   = sum / (N - 1);
+                    const double var = (sum_sq / (N - 1)) - (m * m);
+                    jack_errors[k]   = std::sqrt(var / (N - 2));
+                }
+
+                // Overwrite file with resamples + individual errors
+                std::ofstream out(fname, std::ios::trunc);
+                out << "#" << std::setw(10) << "index"
+                    << std::setw(20) << "resample mean"
+                    << std::setw(20) << "error\n";
+                for (size_t k = 0; k < N; ++k) {
+                    out << std::setw(10) << (k + 1)
+                        << std::fixed << std::setprecision(10)
+                        << std::setw(20) << jack_samples[k]
+                        << std::setw(20) << jack_errors[k] << "\n";
+                }
+            }
+        }
+        MPI_Barrier(comm_);
     }
 };
 
