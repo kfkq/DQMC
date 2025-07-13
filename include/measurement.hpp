@@ -2,14 +2,13 @@
 #define MEASUREMENT_HPP
 
 #include <mpi.h>
+#include <armadillo>
 #include <iostream>
 #include <fstream>
 #include <string>
 #include <iomanip>
 #include <sstream>
 #include <sys/stat.h>  // For directory creation
-
-#include "dqmc.hpp"
 
 class scalarObservable {
 private:
@@ -94,7 +93,7 @@ public:
 
 class MeasurementManager {
 private:
-    std::vector<scalarObservable> observables_;
+    std::vector<scalarObservable> scalarObservables_;
     std::vector<std::function<double(const std::vector<GF>&)>> calculators_;
     MPI_Comm comm_;
     int rank_;
@@ -102,26 +101,26 @@ private:
 public:
     MeasurementManager(MPI_Comm comm, int rank) : comm_(comm), rank_(rank) {}
 
-    void add(const std::string& name, 
+    void addScalar(const std::string& name, 
              std::function<double(const std::vector<GF>&)> calculator) {
-        observables_.emplace_back(name + ".dat", rank_);
+        scalarObservables_.emplace_back(name + ".dat", rank_);
         calculators_.push_back(calculator);
     }
 
     void measure(const std::vector<GF>& greens) {
         for (size_t i = 0; i < calculators_.size(); ++i) {
-            observables_[i] += calculators_[i](greens);
+            scalarObservables_[i] += calculators_[i](greens);
         }
     }
 
     void accumulate() {
-        for (auto& obs : observables_) {
+        for (auto& obs : scalarObservables_) {
             obs.accumulate(comm_);
         }
     }
 
     void reset() {
-        for (auto& obs : observables_) {
+        for (auto& obs : scalarObservables_) {
             obs.reset();
         }
     }

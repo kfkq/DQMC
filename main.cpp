@@ -98,9 +98,9 @@ int main(int argc, char** argv) {
 
     // measurement container
     MeasurementManager measurements(MPI_COMM_WORLD, rank);
-    measurements.add("density", Observables::calculate_density);
-    measurements.add("doubleOcc", Observables::calculate_doubleOccupancy);
-    measurements.add("swave", Observables::calculate_swavePairing);
+    measurements.addScalar("density", Observables::calculate_density);
+    measurements.addScalar("doubleOcc", Observables::calculate_doubleOccupancy);
+    measurements.addScalar("swave", Observables::calculate_swavePairing);
 
     // ----------------------------------------------------------------- 
     //                     Start of DQMC simulation
@@ -124,7 +124,7 @@ int main(int argc, char** argv) {
     }
 
     if (rank == 0) {
-        std::cout << "Start of measurement sweeps \n" << std::flush;
+        std::cout << "Start of DQMC measurement sweeps \n" << std::flush;
     }
 
     double local_time = 0.0;
@@ -157,7 +157,7 @@ int main(int argc, char** argv) {
         int m = (total_sec % 3600) / 60;
         int s = total_sec % 60;
 
-        std::cout << "DQMC simulation is finished in "
+        std::cout << "DQMC measurement sweeps are finished in "
                 << h << " hours "
                 << m << " minutes "
                 << s << " seconds.\n";
