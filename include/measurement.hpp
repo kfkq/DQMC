@@ -1,6 +1,9 @@
 #ifndef MEASUREMENT_HPP
 #define MEASUREMENT_HPP
 
+
+#include "dqmc.hpp"
+
 #include <mpi.h>
 #include <armadillo>
 #include <iostream>
@@ -8,23 +11,18 @@
 #include <string>
 #include <iomanip>
 #include <sstream>
-#include <sys/stat.h>  // For directory creation
+#include <sys/stat.h> 
+
 
 class scalarObservable {
 private:
     std::string filename_;
-    const int precision_ = 10;
-    const int mean_width_ = 20;
-    const int var_width_ = 20;
     
-    // Local accumulation
+    // accumulation
     double local_sum_ = 0.0;
-    double local_sum_sq_ = 0.0;
-    int local_count_ = 0;
-    
-    // Global accumulation
     double global_sum_ = 0.0;
-    double global_sum_sq_ = 0.0;
+
+    int local_count_ = 0;
     int global_count_ = 0;
 
     bool ensure_results_dir(int rank) {
@@ -51,42 +49,32 @@ public:
         
         if (rank == 0) {
             std::ofstream out(filename_);
-            out << "#" << std::setw(mean_width_-1) << "mean" 
-                << std::setw(var_width_) << "std_err\n"; 
+            out << "#" << std::setw(20) << "value\n" ;
         }
     }
     
     void operator+=(double value) {
         local_sum_ += value;
-        local_sum_sq_ += value * value;
         local_count_++;
     }
     
     void accumulate(MPI_Comm comm) {
         MPI_Allreduce(&local_sum_, &global_sum_, 1, MPI_DOUBLE, MPI_SUM, comm);
-        MPI_Allreduce(&local_sum_sq_, &global_sum_sq_, 1, MPI_DOUBLE, MPI_SUM, comm);
         MPI_Allreduce(&local_count_, &global_count_, 1, MPI_INT, MPI_SUM, comm);
         
         int rank;
         MPI_Comm_rank(comm, &rank);
         if (rank == 0) {
             double mean = global_sum_ / global_count_;
-            double variance = (global_sum_sq_ / global_count_) - (mean * mean);
-            double std_err = 0.0;                                                                                                                                                           
-            if (global_count_ > 1) {                                                                                                                                                        
-                // Standard error of the mean                                                                                                                                               
-                std_err = std::sqrt(variance / (global_count_ - 1));                                                                                                         
-            }
             
             std::ofstream out(filename_, std::ios::app);
-            out << std::fixed << std::setprecision(precision_)
-                << std::setw(mean_width_) << mean
-                << std::setw(var_width_) << std_err << "\n";
+            out << std::fixed << std::setprecision(10)
+                << std::setw(20) << mean << "\n";
         }
     }
     
     void reset() {
-        local_sum_ = local_sum_sq_ = 0.0;
+        local_sum_ = 0.0;
         local_count_ = 0;
     }
 };
