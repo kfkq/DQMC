@@ -101,6 +101,7 @@ int main(int argc, char** argv) {
     measurements.addScalar("density", Observables::calculate_density);
     measurements.addScalar("doubleOcc", Observables::calculate_doubleOccupancy);
     measurements.addScalar("swave", Observables::calculate_swavePairing);
+    measurements.addEqualTime("densityCorr", Observables::calculate_densityCorr);
 
     // ----------------------------------------------------------------- 
     //                     Start of DQMC simulation
@@ -127,8 +128,8 @@ int main(int argc, char** argv) {
         std::cout << "Start of DQMC measurement sweeps \n" << std::flush;
     }
 
-    double local_time = 0.0;
     // measurement sweeps
+    double local_time = 0.0;
     for (int ibin = 0; ibin < n_bins; ++ibin) {
         const auto t0_bin = std::chrono::steady_clock::now();   // start timer for this bin
         for (int isweep = 0; isweep < n_sweeps; ++isweep) {
@@ -142,8 +143,17 @@ int main(int argc, char** argv) {
             std::chrono::steady_clock::now() - t0_bin).count();
 
         measurements.accumulate();
-        measurements.reset();
     }
+    
+    // ----------------------------------------------------------------- 
+    //                         Finalization
+    // -----------------------------------------------------------------
+    
+    // Final analysis
+    if (rank == 0) {
+        std::cout << "Final analysis: Jacknife resampling of data files \n" << std::flush;
+    }
+    measurements.jacknifeAnalysis();
 
     double total_time = 0.0;
     MPI_Reduce(&local_time, &total_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -162,17 +172,14 @@ int main(int argc, char** argv) {
                 << m << " minutes "
                 << s << " seconds.\n";
 
-        std::cout << "Average time / sweep = "
+        std::cout << "Average time each sweep = "
                 << std::fixed << std::setprecision(3) << avg_per_sweep << " s\n";
 
         // average acceptance rate (global)
         std::cout << "Average acceptance rate = "
                 << std::fixed << std::setprecision(4) << sim.acc_rate() / (2.0 * (n_bins * n_sweeps + n_therms)) << "\n";
     }
-    
-    // ----------------------------------------------------------------- 
-    //                         MPI Finalization
-    // -----------------------------------------------------------------
+
     MPI_Finalize();
 
     return 0;
