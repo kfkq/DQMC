@@ -13,6 +13,9 @@
 #include <fstream>
 #include <armadillo>
 #include <stdexcept>
+#include <mpi.h>
+#include <iostream>
+#include <iomanip>
 
 namespace utility {
     class random {
@@ -75,6 +78,15 @@ namespace utility {
         static bool file_exists(const std::string& filename) {
             std::ifstream f(filename);
             return f.good();
+        }
+
+        // Print only on MPI rank 0
+        template <typename... Args>
+        static void print_info(Args&&... args) {
+            int rank;
+            MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+            if (rank != 0) return;
+            (std::cout << ... << args) << std::flush;
         }
     };
 }

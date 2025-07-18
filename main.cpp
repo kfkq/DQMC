@@ -82,19 +82,17 @@ int main(int argc, char** argv) {
         greens[nfl]             = sim.init_greenfunctions(propagation_stacks[nfl]);
     }
 
-    if (rank == 0) {
-        std::cout << 
+    utility::io::print_info(
         "=== DQMC Attractive Hubbard ===\n"
-        "Lattice        : " + latt_type + "  " + std::to_string(Lx) + "×" + std::to_string(Ly) + "\n" +
-        "t              : " + std::to_string(t) + "\n" +
-        "U              : " + std::to_string(U) + "\n" +
-        "mu             : " + std::to_string(mu) + "\n" +
-        "β              : " + std::to_string(std::round(beta*1000.0)/1000.0) + "\n" +
-        "Nthermal       : " + std::to_string(n_therms) + "\n" + 
-        "Nsweep per bin : " + std::to_string(n_sweeps) + "\n" + 
-        "Nbin           : " + std::to_string(n_bins) + "\n\n" 
-        << std::flush;
-    }
+        "Lattice        : ", latt_type, " ", Lx, "×", Ly, '\n',
+        "t              : ", t, '\n',
+        "U              : ", U, '\n',
+        "mu             : ", mu, '\n',
+        "β              : ", beta, '\n',
+        "Nthermal       : ", n_therms, '\n',
+        "Nsweep per bin : ", n_sweeps, '\n',
+        "Nbin           : ", n_bins, "\n\n"
+    );
 
     // measurement container
     MeasurementManager measurements(MPI_COMM_WORLD, rank);
@@ -107,9 +105,7 @@ int main(int argc, char** argv) {
     //                     Start of DQMC simulation
     // -----------------------------------------------------------------
 
-    if (rank == 0) {
-        std::cout << "Start of thermalization \n" << std::flush;
-    }
+    utility::io::print_info("Start of thermalization \n");
 
     // thermalization
     const auto t0_therm = std::chrono::steady_clock::now();
@@ -120,13 +116,9 @@ int main(int argc, char** argv) {
     const auto dt_therm = std::chrono::duration<double>(
         std::chrono::steady_clock::now() - t0_therm).count();
     
-    if (rank == 0) {
-        std::cout << "Thermalization done in " + std::to_string(dt_therm) + " s\n" << std::flush;
-    }
+    utility::io::print_info("Thermalization done in ", dt_therm, " s\n");
 
-    if (rank == 0) {
-        std::cout << "Start of DQMC measurement sweeps \n" << std::flush;
-    }
+    utility::io::print_info("Start of DQMC measurement sweeps \n");
 
     // measurement sweeps
     double local_time = 0.0;
@@ -150,34 +142,28 @@ int main(int argc, char** argv) {
     // -----------------------------------------------------------------
     
     // Final analysis
-    if (rank == 0) {
-        std::cout << "Final analysis: Jacknife resampling of data files \n" << std::flush;
-    }
+    utility::io::print_info("Final analysis: Jackknife resampling of data files \n");
     measurements.jacknifeAnalysis();
 
     double total_time = 0.0;
     MPI_Reduce(&local_time, &total_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 
-    if (rank == 0) {
+    {
         const double avg_per_sweep = total_time / (n_bins * n_sweeps * world_size);
+        const int total_sec = static_cast<int>(local_time);
+        const int h = total_sec / 3600;
+        const int m = (total_sec % 3600) / 60;
+        const int s = total_sec % 60;
 
-        // elapsed wall-time for the whole measurement phase
-        int total_sec = static_cast<int>(local_time);   // local_time already holds the **master** bin-loop time
-        int h = total_sec / 3600;
-        int m = (total_sec % 3600) / 60;
-        int s = total_sec % 60;
-
-        std::cout << "DQMC measurement sweeps are finished in "
-                << h << " hours "
-                << m << " minutes "
-                << s << " seconds.\n";
-
-        std::cout << "Average time each sweep = "
-                << std::fixed << std::setprecision(3) << avg_per_sweep << " s\n";
-
-        // average acceptance rate (global)
-        std::cout << "Average acceptance rate = "
-                << std::fixed << std::setprecision(4) << sim.acc_rate() / (2.0 * (n_bins * n_sweeps + n_therms)) << "\n";
+        utility::io::print_info(
+            "DQMC measurement sweeps are finished in ",
+            h, " hours ", m, " minutes ", s, " seconds.\n"
+            "Average time each sweep = ",
+            std::fixed, std::setprecision(3), avg_per_sweep, " s\n"
+            "Average acceptance rate = ",
+            std::fixed, std::setprecision(4),
+            sim.acc_rate() / (2.0 * (n_bins * n_sweeps + n_therms)), '\n'
+        );
     }
 
     MPI_Finalize();
