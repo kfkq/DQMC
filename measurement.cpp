@@ -50,5 +50,9 @@ double calculate_swavePairing(const std::vector<GF>&  greens) {
     return swave/ns;
 }
 
+arma::mat calculate_densityCorr(const std::vector<GF>& greens) {
+    return greens[0].Gtt;
+}
+
 } //end of Observables namespace
 

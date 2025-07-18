@@ -101,6 +101,7 @@ int main(int argc, char** argv) {
     measurements.addScalar("density", Observables::calculate_density);
     measurements.addScalar("doubleOcc", Observables::calculate_doubleOccupancy);
     measurements.addScalar("swave", Observables::calculate_swavePairing);
+    measurements.addEqualTime("densityCorr", Observables::calculate_densityCorr);
 
     // ----------------------------------------------------------------- 
     //                     Start of DQMC simulation
@@ -142,7 +143,6 @@ int main(int argc, char** argv) {
             std::chrono::steady_clock::now() - t0_bin).count();
 
         measurements.accumulate();
-        measurements.reset();
     }
     
     // ----------------------------------------------------------------- 
