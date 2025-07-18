@@ -270,7 +270,10 @@ public:
         char jk_fname[256];
         std::snprintf(jk_fname, sizeof(jk_fname), "results/%s/final.jk.dat", name.c_str());
         std::ofstream out(jk_fname);
-        out << "# i j mean error\n";
+        out << "#" << std::setw(10) << "i"
+            << std::setw(10) << "j"
+            << std::setw(20) << "mean"
+            << std::setw(20) << "error\n";
         out << std::fixed << std::setprecision(10);
 
         for (int k = 0; k < nk; ++k) {
@@ -313,7 +316,10 @@ public:
                         }
                         std::istringstream iss(line);
                         int i, j; double v; iss >> i >> j >> v;
-                        out << i << ' ' << j << ' ' << mean << ' ' << err << '\n';
+                        out << std::setw(10) << i
+                            << std::setw(10) << j
+                            << std::setw(20) << mean
+                            << std::setw(20) << err << '\n';
                     }
                 }
                 break;   // one line per k
