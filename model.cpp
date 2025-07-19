@@ -24,7 +24,7 @@ namespace model {
         /         alpha: coupling constant for the Hubbard-Stratonovich transformation
         */
 
-        const lattice::Lattice& lat,  
+        const Lattice& lat,  
         double t,                    
         double U,              
         double mu,               
@@ -38,7 +38,7 @@ namespace model {
         dtau_(dtau),
         n_flavor_(1),
         
-        ns_(lat.N_sites),
+        ns_(lat.size()),
         nt_(nt)
     {    
         // compute and store the necessary constant and matrices for model and simulation
@@ -50,7 +50,7 @@ namespace model {
     } // End of model initialization
 
     
-    void HubbardAttractiveU::init_expK(const lattice::Lattice& lat) {
+    void HubbardAttractiveU::init_expK(const Lattice& lat) {
         /*  Initialize the one-body operator H_0 in matrix form 
         /   Kinetic Matrix [K] and Chemical Potential and compute its exponential
         /
@@ -65,9 +65,21 @@ namespace model {
         /   The resulted expK is stored in member variable
         */
 
-        Matrix K = -t_ * lattice::nn_matrix(lat);
-        
-        K.diag() -= mu_;
+
+        Matrix K(ns_,ns_);
+        for (int i = 0; i < ns_; i++) {
+            auto nbrx = lat.site_neighbors(i, {1, 0});
+            int ix = nbrx[0];
+            K(i, ix) = -t_;
+            K(ix, i) = -t_;
+
+            auto nbry = lat.site_neighbors(i, {0, 1});
+            int iy = nbry[0];
+            K(i, iy) = -t_;
+            K(iy, i) = -t_;
+            
+            K(i, i) = -mu_;
+        }
         
         expK_ = arma::expmat(-dtau_ * K);
         invexpK_ = arma::expmat(dtau_ * K);

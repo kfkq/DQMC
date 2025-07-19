@@ -4,75 +4,84 @@
 
 #include <armadillo>
 #include <vector>
-#include <string>
 #include <array>
+#include <cmath>
 #include <stdexcept>
 
-namespace lattice {
+struct Bond {
+    int from{};   // orbital index inside unit cell
+    int to{};     // orbital index inside unit cell
+    int dx{};     // unit-cell offset x (in a1,a2 units)
+    int dy{};     // unit-cell offset y (in a1,a2 units)
+};
 
-    using Matrix = arma::mat;
+class Lattice {
+private:
+    std::array<double,2> a1_, a2_;
+    std::vector<std::array<double,2>> orbs_;
+    int Lx_, Ly_, n_orb_;
 
-    // Struct to hold lattice information
-    struct Lattice {
-        std::string type;
-        int Lx, Ly, N_sites;
-        std::array<double, 2> a1, a2; 
-        std::array<double, 2> b1, b2; 
-    };
+    Lattice(const std::array<double,2>& a1,
+            const std::array<double,2>& a2,
+            const std::vector<std::array<double,2>>& orbs,
+            int Lx, int Ly)
+        : a1_(a1), a2_(a2), orbs_(orbs),
+          Lx_(Lx), Ly_(Ly), n_orb_(static_cast<int>(orbs.size()))
+    { if (Lx<=0 || Ly<=0 || n_orb_==0) throw std::invalid_argument("Bad lattice dims"); }
 
-    // Create lattice and return lattice info
-    inline Lattice create_lattice(const std::string& type, int Lx, int Ly) {
-        Lattice lat;
-        lat.type = type;
-        lat.Lx = Lx;
-        lat.Ly = Ly;
-        lat.N_sites = Lx * Ly;
-        
-        if (type == "square") {
-            // Real space vectors
-            lat.a1 = {1.0, 0.0};  
-            lat.a2 = {0.0, 1.0}; 
-            
-            // Reciprocal vectors (2π/a)
-            lat.b1 = {2.0 * M_PI, 0.0};
-            lat.b2 = {0.0, 2.0 * M_PI};
-        } else {
-            throw std::runtime_error("Unsupported lattice type: " + type);
-        }
-        
-        return lat;
+public:
+    /* ---------- factory helpers ---------- */
+    static Lattice create_lattice(const std::array<double,2>& a1,
+                                  const std::array<double,2>& a2,
+                                  const std::vector<std::array<double,2>>& orbs,
+                                  int Lx, int Ly)
+    { return Lattice{a1,a2,orbs,Lx,Ly}; }
+
+    /* ---------- basic info ---------- */
+    int size() const noexcept { return Lx_ * Ly_ * n_orb_; }
+
+    /* ---------- coordinate helpers ---------- */
+    std::vector<double> site_position(int idx) const {
+        if (idx < 0 || idx >= size()) throw std::out_of_range("site index");
+        const int cell = idx / n_orb_;
+        const int orb  = idx % n_orb_;
+        const int ux = cell % Lx_;
+        const int uy = cell / Lx_;
+        return {
+            ux*a1_[0] + uy*a2_[0] + orbs_[orb][0],
+            ux*a1_[1] + uy*a2_[1] + orbs_[orb][1]
+        };
     }
 
-    // Get nearest neighbors
-    inline std::vector<int> nearest_neighbors(const Lattice& lat, int site) {
-        if (lat.type == "square") {
-            int x = site % lat.Lx;
-            int y = site / lat.Lx;
-            return {
-                y * lat.Lx + ((x + 1) % lat.Lx),      // +x neighbor
-                ((y + 1) % lat.Ly) * lat.Lx + x       // +y neighbor
-            };
-            
-        } else {
-            throw std::runtime_error("Unsupported lattice type: " + lat.type);
-        }
+    /* ---------- convenience helpers matching main.cpp ---------- */
+    std::array<int,2> site_to_unitcellpos(int idx) const {
+        const int cell = idx / n_orb_;
+        return {cell % Lx_, cell / Lx_};
     }
 
-    // Create nearest-neighbor matrix
-    inline Matrix nn_matrix(const Lattice& lat) {
-        Matrix matrix(lat.N_sites, lat.N_sites);
-        
-        // Fill matrix based on nearest neighbor connections
-        for (int site = 0; site < lat.N_sites; ++site) {
-            auto nn = nearest_neighbors(lat, site);
-            for (int neighbor : nn) {
-                matrix(site, neighbor) = 1;
-                matrix(neighbor, site) = 1; 
-            }
-        }
-        
-        return matrix;
+    std::vector<int> unitcellpos_to_sites(std::array<int,2> xy) const {
+        int cell = ((xy[1]%Ly_)+Ly_)%Ly_*Lx_ + ((xy[0]%Lx_)+Lx_)%Lx_;
+        std::vector<int> res(n_orb_);
+        for (int o=0; o<n_orb_; ++o) res[o] = cell*n_orb_ + o;
+        return res;
     }
 
-} // namespace lattice
-#endif
+    std::vector<double> distance_between_site(int i,int j) const {
+        std::vector<double> pi = site_position(i);
+        std::vector<double> pj = site_position(j);
+        return {pj[0] - pi[0], pj[1] - pi[1]};
+    }
+
+    std::vector<int> site_neighbors(int idx, std::array<int,2> delta) const {
+        const int cell = idx / n_orb_;
+        const int ux = cell % Lx_;
+        const int uy = cell / Lx_;
+        int tx = ((ux+delta[0])%Lx_+Lx_)%Lx_;
+        int ty = ((uy+delta[1])%Ly_+Ly_)%Ly_;
+        std::vector<int> res(n_orb_);
+        for (int o=0; o<n_orb_; ++o) res[o] = (ty*Lx_+tx)*n_orb_+o;
+        return res;
+    }
+};
+
+#endif // LATTICE_HPP

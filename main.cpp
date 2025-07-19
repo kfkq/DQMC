@@ -62,8 +62,11 @@ int main(int argc, char** argv) {
     int n_therms = toml::find<int>(params, "simulation", "n_therms");
     int n_bins = toml::find<int>(params, "simulation", "n_bins");
 
-    // Lattice initialization
-    auto lat = lattice::create_lattice(latt_type, Lx, Ly);
+    // Lattice creation
+    std::array<double,2> a1{{1.0, 0.0}};
+    std::array<double,2> a2{{0.0, 1.0}};
+    std::vector<std::array<double,2>> orbs{{{0.0, 0.0}}};
+    Lattice lat = Lattice::create_lattice(a1, a2, orbs, Lx, Ly);
 
     // Model initialization
     auto hubbard = model::HubbardAttractiveU(lat, t, U, mu, dtau, nt);

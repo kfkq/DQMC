@@ -38,12 +38,12 @@ namespace model {
             Matrix invexpK_; 
             IMatrix fields_;  
 
-            void init_expK(const lattice::Lattice& lat);
+            void init_expK(const Lattice& lat);
             void init_fields();
             void compute_alpha();
 
         public:
-            HubbardAttractiveU(const lattice::Lattice& lat, 
+            HubbardAttractiveU(const Lattice& lat, 
                             double t, double U, double mu, 
                             double dtau, int nt);
 
