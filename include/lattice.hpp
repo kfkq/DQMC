@@ -8,13 +8,6 @@
 #include <cmath>
 #include <stdexcept>
 
-struct Bond {
-    int from{};   // orbital index inside unit cell
-    int to{};     // orbital index inside unit cell
-    int dx{};     // unit-cell offset x (in a1,a2 units)
-    int dy{};     // unit-cell offset y (in a1,a2 units)
-};
-
 class Lattice {
 private:
     std::array<double,2> a1_, a2_;
