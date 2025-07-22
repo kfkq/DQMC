@@ -74,6 +74,23 @@ namespace transform {
     }
 }
 
+static bool ensure_dir(const std::string& path, int rank)
+{
+    if (rank == 0) {
+        struct stat info;
+        if (stat(path.c_str(), &info) != 0) {
+#ifdef _WIN32
+            int status = _mkdir(path.c_str());
+#else
+            int status = mkdir(path.c_str(), 0755);
+#endif
+            if (status != 0) return false;
+        }
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    return true;
+}
+
 namespace statistics {
     inline double mean(const std::vector<double>& v) {                                                                                                                                                             
         return v.empty() ? 0.0 :                                                                                                                                                                                   
@@ -110,7 +127,7 @@ namespace statistics {
 class scalarObservable {
 private:
     std::string filename_;
-    
+
     // accumulation
     double local_sum_ = 0.0;
     double global_sum_ = 0.0;
@@ -118,31 +135,11 @@ private:
     int local_count_ = 0;
     int global_count_ = 0;
 
-    bool ensure_results_dir(int rank) {
-        if (rank == 0) {
-            struct stat info;
-            if (stat("results", &info) != 0) {
-                #ifdef _WIN32
-                    int status = _mkdir("results");
-                #else
-                    int status = mkdir("results", 0755);
-                #endif
-                if (status != 0) return false;
-            }
-        }
-        MPI_Barrier(MPI_COMM_WORLD);
-        return true;
-    }
-
 public:
-    scalarObservable(const std::string& filename, int rank) : filename_("results/" + filename) {
-        if (!ensure_results_dir(rank)) {
+    scalarObservable(const std::string& filename, int rank)
+        : filename_("results/" + filename) {
+        if (!ensure_dir("results", rank)) {
             throw std::runtime_error("Could not create results directory");
-        }
-        
-        if (rank == 0) {
-            std::string outname = filename_ + "_bin.dat";                                                                                                                                                              
-            std::ofstream out(outname);
         }
     }
 
@@ -153,12 +150,10 @@ public:
         local_count_++;
     }
     
-    void accumulate(MPI_Comm comm) {
+    void accumulate(MPI_Comm comm, int rank) {
         MPI_Allreduce(&local_sum_, &global_sum_, 1, MPI_DOUBLE, MPI_SUM, comm);
         MPI_Allreduce(&local_count_, &global_count_, 1, MPI_INT, MPI_SUM, comm);
         
-        int rank;
-        MPI_Comm_rank(comm, &rank);
         if (rank == 0) {
             double mean = global_sum_ / global_count_;
             
@@ -173,12 +168,10 @@ public:
         local_count_ = 0;
     }
 
-    static void jackknife(const std::string& filename,
-                          MPI_Comm comm,
-                          int rank) {
+    void jackknife(int rank) {
         if (rank != 0) return;
 
-        std::string inname = filename + "_bin.dat"; 
+        std::string inname = filename_ + "_bin.dat"; 
         std::ifstream in(inname);
         if (!in) {
             std::cerr << "Warning: could not open " << inname << " for jackknife\n";
@@ -196,10 +189,10 @@ public:
         in.close();
 
         const auto [means, errors] = statistics::jackknife(values);                                                                                                                                                
-        const double mMean  = statistics::mean(means);                                                                                                                                                             
-        const double mError = statistics::mean(errors);                                                                                                                                                            
-                                                                                                                                                                                                                   
-        std::string outname = filename + "_stat.dat";                                                                                                                                                              
+        const double mMean  = statistics::mean(means);
+        const double mError = statistics::mean(errors);
+        
+        std::string outname = filename_ + "_stat.dat";                                                                                                                                                              
         std::ofstream out(outname);                                                                                                                                                                                
         out << std::setw(10) << "mean" << std::setw(20) << "error\n";                                                                                                                                              
         out << std::fixed << std::setprecision(12)                                                                                                                                                                 
@@ -210,39 +203,20 @@ public:
 
 class equalTimeObservable {
 private:
-    std::string name_;
-    int rank_;
+    std::string filename_;
     int matrix_size_ = 0;  // inferred on first matrix
 
     arma::mat local_sum_;
     int local_count_ = 0;
-
-    bool ensure_obs_dir() {
-        if (rank_ == 0) {
-            struct stat info;
-            std::string path = "results/" + name_;
-            if (stat(path.c_str(), &info) != 0) {
-                #ifdef _WIN32
-                    int status = _mkdir(path.c_str());
-                #else
-                    int status = mkdir(path.c_str(), 0755);
-                #endif
-                if (status != 0) return false;
-            }
-        }
-        MPI_Barrier(MPI_COMM_WORLD);
-        return true;
-    }
-
 public:
-    equalTimeObservable(const std::string& name, int rank)
-        : name_(name), rank_(rank) {
-        if (!ensure_obs_dir()) {
-            throw std::runtime_error("Could not create results/" + name_ + " directory");
+    equalTimeObservable(const std::string& filename, int rank)
+        : filename_(filename){
+        if (!ensure_dir("results/" + filename_, rank)) {
+            throw std::runtime_error("Could not create results/" + filename_ + " directory");
         }
     }
 
-    const std::string& filename() const { return name_; }
+    const std::string& filename() const { return filename_; }
 
     void operator+=(const arma::mat& m) {
         if (matrix_size_ == 0) {
@@ -254,7 +228,7 @@ public:
         ++local_count_;
     }
 
-    void accumulate(const Lattice& lat, MPI_Comm comm) {        
+    void accumulate(const Lattice& lat, MPI_Comm comm, int rank) {        
         const int n_sites = local_sum_.n_rows;
         arma::mat global_sum(n_sites, n_sites, arma::fill::zeros);
         int global_count = 0;
@@ -268,10 +242,10 @@ public:
         arma::field<arma::mat> chi_r = transform::chi_site_to_chi_r(global_sum / global_count, lat);
 
         static int bin_counter = 0;
-        if (rank_ == 0) {
+        if (rank == 0) {
             char fname[256];
             std::snprintf(fname, sizeof(fname),
-                          "results/%s/bin_%04d.dat", name_.c_str(), bin_counter++);
+                          "results/%s/bin_%04d.dat", filename_.c_str(), bin_counter++);
 
             std::ofstream out(fname);
             out << std::fixed << std::setprecision(12)
@@ -311,9 +285,7 @@ public:
         local_count_ = 0;
     }
 
-    static void jackknife(const std::string& name,                                                                                                                                                                     
-                      MPI_Comm comm,                                                                                                                                                                               
-                      int rank)                                                                                                                                                                                    
+    void jackknife(int rank)                                                                                                                                                                                    
     {                                                                                                                                                                                                                  
         if (rank != 0) return;                                                                                                                                                                                         
                                                                                                                                                                                                                     
@@ -321,7 +293,7 @@ public:
         std::vector<std::string> bins;                                                                                                                                                                                 
         for (int idx = 0; ; ++idx) {                                                                                                                                                                                   
             char fname[256];                                                                                                                                                                                           
-            std::snprintf(fname, sizeof(fname), "results/%s/bin_%04d.dat", name.c_str(), idx);                                                                                                                         
+            std::snprintf(fname, sizeof(fname), "results/%s/bin_%04d.dat", filename_.c_str(), idx);                                                                                                                         
             if (!std::ifstream(fname).good()) break;                                                                                                                                                                   
             bins.emplace_back(fname);                                                                                                                                                                                  
         }                                                                                                                                                                                                              
@@ -344,7 +316,7 @@ public:
                                                                                                                                                                                                                     
         /* 3. run jackknife per key and write results */                                                                                                                                                               
         char outname[256];                                                                                                                                                                                             
-        std::snprintf(outname, sizeof(outname), "results/%s/stat.dat", name.c_str());                                                                                                                         
+        std::snprintf(outname, sizeof(outname), "results/%s/stat.dat", filename_.c_str());                                                                                                                         
         std::ofstream out(outname);                                                                                                                                                                                    
         out << std::fixed << std::setprecision(12)
             << std::setw(20) << "dx"                                                                                                                                                                            
@@ -409,11 +381,11 @@ public:
 
     void accumulate(const Lattice& lat) {
         for (auto& obs : scalarObservables_) {
-            obs.accumulate(comm_);
+            obs.accumulate(comm_, rank_);
             
         }
         for (auto& obs : equalTimeObservables_) {
-            obs.accumulate(lat, comm_);
+            obs.accumulate(lat, comm_, rank_);
         }
     }
 
@@ -421,10 +393,10 @@ public:
     // jackknife analysis
     void jacknifeAnalysis() {
         for (auto& obs : scalarObservables_) {
-            scalarObservable::jackknife(obs.filename(), comm_, rank_);
+            obs.jackknife(rank_);
         }
         for (auto& obs : equalTimeObservables_) {
-            equalTimeObservable::jackknife(obs.filename(), comm_, rank_);
+            obs.jackknife(rank_);
         }
         MPI_Barrier(comm_);
     }
