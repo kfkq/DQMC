@@ -292,8 +292,8 @@ public:
                 for (int ry = 0; ry < Ly; ++ry) {
                     for (int a = 0; a < n_orb; ++a) {
                         for (int b = 0; b < n_orb; ++b) {
-                            double dx = (rx - Lx/2) * a1[0] + (ry - Ly/2) * a2[0];
-                            double dy = (rx - Lx/2) * a1[1] + (ry - Ly/2) * a2[1];
+                            double dx = (rx - Lx/2 + 1) * a1[0] + (ry - Ly/2 + 1) * a2[0];
+                            double dy = (rx - Lx/2 + 1) * a1[1] + (ry - Ly/2 + 1) * a2[1];
                             
                             out << std::setw(20) << dx
                                 << std::setw(20) << dy
