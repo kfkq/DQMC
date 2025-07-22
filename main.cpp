@@ -129,15 +129,15 @@ int main(int argc, char** argv) {
         const auto t0_bin = std::chrono::steady_clock::now();   // start timer for this bin
         for (int isweep = 0; isweep < n_sweeps; ++isweep) {
             sim.sweep_0_to_beta(greens, propagation_stacks);
-            measurements.measure(greens);
+            measurements.measure(greens, lat);
 
             sim.sweep_beta_to_0(greens, propagation_stacks);
-            measurements.measure(greens);
+            measurements.measure(greens, lat);
         }
         local_time += std::chrono::duration<double>(
             std::chrono::steady_clock::now() - t0_bin).count();
 
-        measurements.accumulate();
+        measurements.accumulate(lat);
     }
     
     // ----------------------------------------------------------------- 

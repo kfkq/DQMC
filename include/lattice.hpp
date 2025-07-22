@@ -50,7 +50,14 @@ public:
     { return Lattice{a1,a2,orbs,Lx,Ly}; }
 
     /* ---------- basic info ---------- */
-    int size() const noexcept { return Lx_ * Ly_ * n_orb_; }
+    int size() const noexcept { return Lx_ * Ly_; }
+    int n_sites() const noexcept { return Lx_ * Ly_ * n_orb_; }
+    const int& Lx() const noexcept { return Lx_; }
+    const int& Ly() const noexcept { return Ly_; }
+    const int& n_orb() const noexcept { return n_orb_; }
+
+    const std::array<double,2>& a1() const noexcept { return a1_; }                                                                                                                                                    
+    const std::array<double,2>& a2() const noexcept { return a2_; }     
 
     /* ---------- coordinate helpers ---------- */
     std::vector<double> site_position(int idx) const {
@@ -69,18 +76,19 @@ public:
     const std::vector<std::array<double,2>>& k_points() const noexcept { return k_points_; }
     const std::array<double,2>& b1() const noexcept { return b1_; }
     const std::array<double,2>& b2() const noexcept { return b2_; }
-
+    
     /* ---------- convenience helpers matching main.cpp ---------- */
     std::array<int,2> site_to_unitcellpos(int idx) const {
         const int cell = idx / n_orb_;
         return {cell % Lx_, cell / Lx_};
     }
 
-    std::vector<int> unitcellpos_to_sites(std::array<int,2> xy) const {
-        int cell = ((xy[1]%Ly_)+Ly_)%Ly_*Lx_ + ((xy[0]%Lx_)+Lx_)%Lx_;
-        std::vector<int> res(n_orb_);
-        for (int o=0; o<n_orb_; ++o) res[o] = cell*n_orb_ + o;
-        return res;
+    int cell_to_site(int cell, int orb) const {
+        if (orb >= n_orb_) {
+            std::cerr << "Warning: orb index " << orb 
+                      << " >= n_orb_  : " << n_orb_ << std::endl;
+        }
+        return cell * n_orb_ + orb;
     }
 
     std::vector<double> distance_between_site(int i,int j) const {

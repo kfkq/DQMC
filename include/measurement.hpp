@@ -1,7 +1,6 @@
 #ifndef MEASUREMENT_HPP
 #define MEASUREMENT_HPP
 
-
 #include "dqmc.hpp"
 
 #include <mpi.h>
@@ -11,7 +10,102 @@
 #include <string>
 #include <iomanip>
 #include <sstream>
+#include <map>
+#include <tuple>
 #include <sys/stat.h>
+
+namespace transform {
+    inline int pbc_shortest(int d, int L) {                                                                                                                                                                                       
+        if (d >  L/2)  d -= L;                                                                                                                                                                                         
+        if (d <= -L/2) d += L;                                                                                                                                                                                         
+        return d;                                                                                                                                                                                                      
+    } 
+    // ------------------------------------------------------------------           
+    //  chi_site_to_chi_r                                                           
+    //  Convert site–site correlator \chi(i,j) → \chi_{a,b}(dx,dy)                        
+    //  dx,dy range: (-Lx/2+1 … Lx/2)  and  (-Ly/2+1 … Lx/2)                        
+    // ------------------------------------------------------------------           
+    inline
+    arma::field<arma::mat>
+    chi_site_to_chi_r(const arma::mat& chi_site,                                    
+                    const Lattice&   lat) {                                       
+        const int n_orb = lat.n_orb();                         
+        const int Lx = lat.Lx();                                                    
+        const int Ly = lat.Ly();
+        const int n_cells = lat.size();                                            
+                                                                                    
+        arma::field<arma::mat> chi_r(n_orb, n_orb);                                 
+        for (int a = 0; a < n_orb; ++a) {                                          
+            for (int b = 0; b < n_orb; ++b) {                                         
+                chi_r(a,b).zeros(Lx, Ly);
+            }
+        }
+
+        for (int ij = 0; ij < static_cast<int>(chi_site.n_elem); ++ij) {
+            const int i = ij % chi_site.n_rows;
+            const int j = ij / chi_site.n_rows;
+            const double val = chi_site(i,j);
+
+            const int a = i % n_orb;
+            const int b = j % n_orb;
+
+            const int cell_i = i / n_orb;
+            const int cell_j = j / n_orb;
+
+            const int cxi = cell_i % Lx;
+            const int cyi = cell_i / Lx;
+            const int cxj = cell_j % Lx;
+            const int cyj = cell_j / Lx;
+
+            // shortest relative distance under PBC
+            int raw_dx = cxj - cxi;
+            int dx     = transform::pbc_shortest(raw_dx, Lx);
+            int raw_dy = cyj - cyi;
+            int dy     = transform::pbc_shortest(raw_dy, Ly);
+
+            // map into [0,Lx-1] and [0,Ly-1] for storage
+            dx = dx + Lx/2 - 1;
+            dy = dy + Ly/2 - 1;
+
+            chi_r(a,b)(dx, dy) += val / n_cells;
+        }
+
+        return chi_r;                                                               
+    }
+}
+
+namespace statistics {
+    inline double mean(const std::vector<double>& v) {                                                                                                                                                             
+        return v.empty() ? 0.0 :                                                                                                                                                                                   
+               std::accumulate(v.begin(), v.end(), 0.0) / v.size();                                                                                                                                                
+    }
+    
+    struct JackknifeResult {
+        std::vector<double> means;
+        std::vector<double> errors;
+    };
+
+    inline JackknifeResult jackknife(const std::vector<double>& data) {
+        const std::size_t N = data.size();
+        JackknifeResult res;
+        res.means.resize(N);
+        res.errors.resize(N);
+
+        for (std::size_t k = 0; k < N; ++k) {
+            double sum = 0.0, sum_sq = 0.0;
+            for (std::size_t j = 0; j < N; ++j) {
+                if (j == k) continue;
+                sum    += data[j];
+                sum_sq += data[j] * data[j];
+            }
+            const double m   = sum / (N - 1);
+            const double var = (sum_sq / (N - 1)) - (m * m);
+            res.means[k]  = m;
+            res.errors[k] = std::sqrt(var / (N - 2));
+        }
+        return res;
+    }
+} // namespace statistics
 
 class scalarObservable {
 private:
@@ -47,8 +141,8 @@ public:
         }
         
         if (rank == 0) {
-            std::ofstream out(filename_);
-            out << "#" << std::setw(20) << "value\n" ;
+            std::string outname = filename_ + "_bin.dat";                                                                                                                                                              
+            std::ofstream out(outname);
         }
     }
 
@@ -68,8 +162,9 @@ public:
         if (rank == 0) {
             double mean = global_sum_ / global_count_;
             
-            std::ofstream out(filename_, std::ios::app);
-            out << std::fixed << std::setprecision(10)
+            std::string outname = filename_ + "_bin.dat";                                                                                                                                                              
+            std::ofstream out(outname, std::ios::app); 
+            out << std::fixed << std::setprecision(12)
                 << std::setw(20) << mean << "\n";
         }
 
@@ -83,9 +178,10 @@ public:
                           int rank) {
         if (rank != 0) return;
 
-        std::ifstream in(filename);
+        std::string inname = filename + "_bin.dat"; 
+        std::ifstream in(inname);
         if (!in) {
-            std::cerr << "Warning: could not open " << filename << " for jackknife\n";
+            std::cerr << "Warning: could not open " << inname << " for jackknife\n";
             return;
         }
 
@@ -99,48 +195,15 @@ public:
         }
         in.close();
 
-        const size_t N = values.size();
-        if (N == 0) {
-            std::cerr << "Warning: no data in " << filename << "\n";
-            return;
-        }
-
-        // Jackknife resampling
-        std::vector<double> jack_samples(N);
-        for (size_t k = 0; k < N; ++k) {
-            double sum = 0.0;
-            for (size_t j = 0; j < N; ++j) {
-                if (j != k) sum += values[j];
-            }
-            jack_samples[k] = sum / (N - 1);
-        }
-
-        // Compute per-sample jackknife error
-        std::vector<double> jack_errors(N);
-        for (size_t k = 0; k < N; ++k) {
-            double sum_sq = 0.0;
-            double sum    = 0.0;
-            for (size_t j = 0; j < N; ++j) {
-                if (j == k) continue;
-                sum    += values[j];
-                sum_sq += values[j] * values[j];
-            }
-            const double m   = sum / (N - 1);
-            const double var = (sum_sq / (N - 1)) - (m * m);
-            jack_errors[k]   = std::sqrt(var / (N - 2));
-        }
-
-        // Overwrite file with resamples + individual errors
-        std::ofstream out(filename, std::ios::trunc);
-        out << "#" << std::setw(10) << "index"
-            << std::setw(20) << "resample mean"
-            << std::setw(20) << "error\n";
-        for (size_t k = 0; k < N; ++k) {
-            out << std::setw(10) << (k + 1)
-                << std::fixed << std::setprecision(10)
-                << std::setw(20) << jack_samples[k]
-                << std::setw(20) << jack_errors[k] << "\n";
-        }
+        const auto [means, errors] = statistics::jackknife(values);                                                                                                                                                
+        const double mMean  = statistics::mean(means);                                                                                                                                                             
+        const double mError = statistics::mean(errors);                                                                                                                                                            
+                                                                                                                                                                                                                   
+        std::string outname = filename + "_stat.dat";                                                                                                                                                              
+        std::ofstream out(outname);                                                                                                                                                                                
+        out << std::setw(10) << "mean" << std::setw(20) << "error\n";                                                                                                                                              
+        out << std::fixed << std::setprecision(12)                                                                                                                                                                 
+            << std::setw(10) << mMean << std::setw(20) << mError << '\n';
     }
     
 };
@@ -159,12 +222,11 @@ private:
             struct stat info;
             std::string path = "results/" + name_;
             if (stat(path.c_str(), &info) != 0) {
-#ifdef _WIN32
-                int status = _mkdir(path.c_str());
-#else
-                int status = mkdir(path.c_str(), 0755);
-
-#endif
+                #ifdef _WIN32
+                    int status = _mkdir(path.c_str());
+                #else
+                    int status = mkdir(path.c_str(), 0755);
+                #endif
                 if (status != 0) return false;
             }
         }
@@ -180,7 +242,7 @@ public:
         }
     }
 
-    const std::string& name() const { return name_; }
+    const std::string& filename() const { return name_; }
 
     void operator+=(const arma::mat& m) {
         if (matrix_size_ == 0) {
@@ -192,193 +254,166 @@ public:
         ++local_count_;
     }
 
-    void accumulate(MPI_Comm comm) {
-        arma::mat global_sum(matrix_size_, matrix_size_, arma::fill::zeros);
+    void accumulate(const Lattice& lat, MPI_Comm comm) {        
+        const int n_sites = local_sum_.n_rows;
+        arma::mat global_sum(n_sites, n_sites, arma::fill::zeros);
         int global_count = 0;
 
+
         MPI_Allreduce(local_sum_.memptr(), global_sum.memptr(),
-                      matrix_size_ * matrix_size_, MPI_DOUBLE, MPI_SUM, comm);
+                      n_sites * n_sites, MPI_DOUBLE, MPI_SUM, comm);
         MPI_Allreduce(&local_count_, &global_count, 1, MPI_INT, MPI_SUM, comm);
+
+        // convert site matrix → real-space field
+        arma::field<arma::mat> chi_r = transform::chi_site_to_chi_r(global_sum / global_count, lat);
 
         static int bin_counter = 0;
         if (rank_ == 0) {
             char fname[256];
             std::snprintf(fname, sizeof(fname),
-                          "results/%s/bin_%06d.dat", name_.c_str(), bin_counter++);
+                          "results/%s/bin_%04d.dat", name_.c_str(), bin_counter++);
+
             std::ofstream out(fname);
-            const unsigned N = global_sum.n_rows;               // full side length
-            const unsigned start = N / 2;                       // first upper-triangle index
-            const unsigned nUpper = N - start;                  // elements per side in upper block
-            out << "# nk " << nUpper * nUpper << '\n';
-            out << "# i j value\n";
-            out << std::fixed << std::setprecision(10);
-            for (unsigned i = start; i < N; ++i) {
-                for (unsigned j = start; j < N; ++j) {
-                    out << i << ' ' << j << ' '
-                        << global_sum(i, j) / global_count << '\n';
+            out << std::fixed << std::setprecision(12)
+                << std::setw(20) << "dx"
+                << std::setw(20) << "dy"
+                << std::setw(4)  << "a"
+                << std::setw(4)  << "b"
+                << std::setw(20) << "value" << '\n';
+
+            const int n_orb = chi_r.n_rows;
+            const int Lx    = chi_r(0,0).n_rows;
+            const int Ly    = chi_r(0,0).n_cols;
+
+            const std::array<double,2>& a1 = lat.a1();
+            const std::array<double,2>& a2 = lat.a2();
+
+            for (int rx = 0; rx < Lx; ++rx) {
+                for (int ry = 0; ry < Ly; ++ry) {
+                    for (int a = 0; a < n_orb; ++a) {
+                        for (int b = 0; b < n_orb; ++b) {
+                            double dx = (rx - Lx/2) * a1[0] + (ry - Ly/2) * a2[0];
+                            double dy = (rx - Lx/2) * a1[1] + (ry - Ly/2) * a2[1];
+                            
+                            out << std::setw(20) << dx
+                                << std::setw(20) << dy
+                                << std::setw(4)  << a
+                                << std::setw(4)  << b
+                                << std::setw(20) << std::setprecision(12)
+                                << chi_r(a,b)(rx,ry) << '\n';
+                        }
+                    }
                 }
             }
         }
 
-        // reset accumulators
         local_sum_.zeros();
         local_count_ = 0;
     }
 
-    static void jackknife(const std::string& name,
-                          MPI_Comm comm,
-                          int rank) {
-        if (rank != 0) return;
-
-        // 1. discover how many (i,j) pairs we have
-        int nk = 0;
-        {
-            std::ifstream tmp;
-            char fname[256];
-            std::snprintf(fname, sizeof(fname), "results/%s/bin_000000.dat", name.c_str());
-            tmp.open(fname);
-            if (!tmp) return;
-            std::string line;
-            std::getline(tmp, line);            // "# nk <value>"
-            std::istringstream iss(line);
-            std::string dummy; iss >> dummy >> dummy >> nk;
-        }
-        if (nk <= 0) return;
-
-        // 2. collect per-(i,j) vectors
-        std::vector<std::vector<double>> values(nk);
-        int bin_idx = 0;
-        while (true) {
-            char fname[256];
-            std::snprintf(fname, sizeof(fname),
-                          "results/%s/bin_%06d.dat", name.c_str(), bin_idx);
-            std::ifstream in(fname);
-            if (!in) break;
-            std::string line;
-            std::getline(in, line);            // skip header
-            for (int k = 0; k < nk; ++k) {
-                std::getline(in, line);
-                if (line.empty() || line[0] == '#') continue;
-                std::istringstream iss(line);
-                int i, j; double v; iss >> i >> j >> v;
-                values[k].push_back(v);
-            }
-            ++bin_idx;
-        }
-
-        // 3. write final file: i j mean error
-        char jk_fname[256];
-        std::snprintf(jk_fname, sizeof(jk_fname), "results/%s/final.jk.dat", name.c_str());
-        std::ofstream out(jk_fname);
-        out << "#" << std::setw(10) << "i"
-            << std::setw(10) << "j"
-            << std::setw(20) << "mean"
-            << std::setw(20) << "error\n";
-        out << std::fixed << std::setprecision(10);
-
-        for (int k = 0; k < nk; ++k) {
-            if (values[k].empty()) continue;
-
-            // temporary file name for scalar routine
-            char tmp[256];
-            std::snprintf(tmp, sizeof(tmp), "results/%s/_tmp_%d.dat", name.c_str(), k);
-            {
-                std::ofstream tmp_out(tmp);
-                tmp_out << std::fixed << std::setprecision(10);
-                for (double v : values[k]) tmp_out << v << '\n';
-            }
-
-            // run scalar jack-knife on this subset
-            scalarObservable::jackknife(tmp, comm, rank);
-
-            // read back the single jack-knife result
-            std::ifstream res(tmp);
-            std::string line;
-            while (std::getline(res, line)) {
-                if (line.empty() || line[0] == '#') continue;
-                std::istringstream iss(line);
-                int idx; double mean, err; iss >> idx >> mean >> err;
-                // retrieve (i,j) from the original data structure
-                // For equal time observables, we need to track the original indices
-                // Since we can't reconstruct them from the values alone, we'll use
-                // the fact that k corresponds to the (i,j) pair order in the first bin file
-                int nk = 0;
-                {
-                    std::ifstream tmp_bin;
-                    char fname[256];
-                    std::snprintf(fname, sizeof(fname), "results/%s/bin_000000.dat", name.c_str());
-                    tmp_bin.open(fname);
-                    if (tmp_bin) {
-                        std::string line;
-                        std::getline(tmp_bin, line); // skip first header
-                        for (int k2 = 0; k2 <= k; ++k2) {
-                            std::getline(tmp_bin, line);
-                        }
-                        std::istringstream iss(line);
-                        int i, j; double v; iss >> i >> j >> v;
-                        out << std::setw(10) << i
-                            << std::setw(10) << j
-                            << std::setw(20) << mean
-                            << std::setw(20) << err << '\n';
-                    }
-                }
-                break;   // one line per k
-            }
-            std::remove(tmp);
-        }
-
-        // delete original bin files
-        bin_idx = 0;
-        while (true) {
-            char fname[256];
-            std::snprintf(fname, sizeof(fname),
-                          "results/%s/bin_%06d.dat", name.c_str(), bin_idx);
-            if (std::remove(fname) != 0) break;
-            ++bin_idx;
-        }
-    }
+    static void jackknife(const std::string& name,                                                                                                                                                                     
+                      MPI_Comm comm,                                                                                                                                                                               
+                      int rank)                                                                                                                                                                                    
+    {                                                                                                                                                                                                                  
+        if (rank != 0) return;                                                                                                                                                                                         
+                                                                                                                                                                                                                    
+        /* 1. collect all bin files */                                                                                                                                                                                 
+        std::vector<std::string> bins;                                                                                                                                                                                 
+        for (int idx = 0; ; ++idx) {                                                                                                                                                                                   
+            char fname[256];                                                                                                                                                                                           
+            std::snprintf(fname, sizeof(fname), "results/%s/bin_%04d.dat", name.c_str(), idx);                                                                                                                         
+            if (!std::ifstream(fname).good()) break;                                                                                                                                                                   
+            bins.emplace_back(fname);                                                                                                                                                                                  
+        }                                                                                                                                                                                                              
+        if (bins.empty()) return;                                                                                                                                                                                      
+                                                                                                                                                                                                                    
+        /* 2. build vectors: key = (dx,dy,a,b) -> values over bins */                                                                                                                                                  
+        std::map<std::tuple<double,double,int,int>, std::vector<double>> data;                                                                                                                                         
+                                                                                                                                                                                                                    
+        for (const std::string& bin : bins) {                                                                                                                                                                          
+            std::ifstream in(bin);                                                                                                                                                                                     
+            std::string line; std::getline(in, line);        // skip header                                                                                                                                            
+            while (std::getline(in, line)) {                                                                                                                                                                           
+                if (line.empty() || line[0] == '#') continue;                                                                                                                                                          
+                std::istringstream iss(line);                                                                                                                                                                          
+                double dx, dy; int a, b; double v;                                                                                                                                                                     
+                if (iss >> dx >> dy >> a >> b >> v)                                                                                                                                                                    
+                    data[{dx,dy,a,b}].push_back(v);                                                                                                                                                                    
+            }                                                                                                                                                                                                          
+        }                                                                                                                                                                                                              
+                                                                                                                                                                                                                    
+        /* 3. run jackknife per key and write results */                                                                                                                                                               
+        char outname[256];                                                                                                                                                                                             
+        std::snprintf(outname, sizeof(outname), "results/%s/stat.dat", name.c_str());                                                                                                                         
+        std::ofstream out(outname);                                                                                                                                                                                    
+        out << std::fixed << std::setprecision(12)
+            << std::setw(20) << "dx"                                                                                                                                                                            
+            << std::setw(20) << "dy"                                                                                                                                                                                   
+            << std::setw(4)  << "a"                                                                                                                                                                                    
+            << std::setw(4)  << "b"                                                                                                                                                                                    
+            << std::setw(20) << "mean"                                                                                                                                                                                 
+            << std::setw(20) << "error\n";                                                                                                                                                                             
+        out << std::fixed << std::setprecision(12);                                                                                                                                                                    
+                                                                                                                                                                                                                    
+        for (const auto& [key, vals] : data) {                                                                                                                                                                         
+            if (vals.size() < 2) continue;                                                                                                                                                                             
+                                                                                                                                                                                                                    
+            const auto [means, errs]  = statistics::jackknife(vals);                                                                                                                                                   
+            const double mMean  = statistics::mean(means);                                                                                                                                                             
+            const double mError = statistics::mean(errs);                                                                                                                                                              
+                                                                                                                                                                                                                    
+            const auto [dx,dy,a,b] = key;                                                                                                                                                                              
+            out << std::setw(20) << dx                                                                                                                                                                                 
+                << std::setw(20) << dy                                                                                                                                                                                 
+                << std::setw(4)  << a                                                                                                                                                                                  
+                << std::setw(4)  << b                                                                                                                                                                                  
+                << std::setw(20) << mMean                                                                                                                                                                              
+                << std::setw(20) << mError << '\n';                                                                                                                                                                    
+        }                                                                                                                                                
+    } 
 };
 
 class MeasurementManager {
-private:
-    std::vector<scalarObservable> scalarObservables_;
-    std::vector<std::function<double(const std::vector<GF>&)>> calculators_;
-    MPI_Comm comm_;
-    int rank_;
-
-    std::vector<equalTimeObservable> equalTimeObservables_;
-    std::vector<std::function<arma::mat(const std::vector<GF>&)>> eqTimeCalculators_;
+private:                                                                                                                                                                                                           
+    std::vector<scalarObservable> scalarObservables_;                                                                                                                                                              
+    std::vector<std::function<double(const std::vector<GF>&, const Lattice&)>> calculators_;                                                                                                                       
+    MPI_Comm comm_;                                                                                                                                                                                                
+    int rank_;                                                                                                                                                                                                     
+                                                                                                                                                                                                                   
+    std::vector<equalTimeObservable> equalTimeObservables_;                                                                                                                                                        
+    std::vector<std::function<arma::mat(const std::vector<GF>&, const Lattice&)>> eqTimeCalculators_; 
     
 public:
     MeasurementManager(MPI_Comm comm, int rank) : comm_(comm), rank_(rank) {}
 
     void addScalar(const std::string& name, 
-             std::function<double(const std::vector<GF>&)> calculator) {
-        scalarObservables_.emplace_back(name + ".dat", rank_);
+             std::function<double(const std::vector<GF>&, const Lattice& lat)> calculator) {
+        scalarObservables_.emplace_back(name, rank_);
         calculators_.push_back(calculator);
     }
 
     void addEqualTime(const std::string& name,
-                      std::function<arma::mat(const std::vector<GF>&)> calculator) {
+                      std::function<arma::mat(const std::vector<GF>&, const Lattice& lat)> calculator) {
         equalTimeObservables_.emplace_back(name, rank_);
         eqTimeCalculators_.push_back(calculator);
     }
 
-    void measure(const std::vector<GF>& greens) {
+    void measure(const std::vector<GF>& greens, const Lattice& lat) {
         for (size_t i = 0; i < calculators_.size(); ++i) {
-            scalarObservables_[i] += calculators_[i](greens);
+            scalarObservables_[i] += calculators_[i](greens, lat);
         }
         for (size_t i = 0; i < eqTimeCalculators_.size(); ++i) {
-            equalTimeObservables_[i] += eqTimeCalculators_[i](greens);
+            equalTimeObservables_[i] += eqTimeCalculators_[i](greens, lat);
         }
     }
 
-    void accumulate() {
+    void accumulate(const Lattice& lat) {
         for (auto& obs : scalarObservables_) {
             obs.accumulate(comm_);
+            
         }
         for (auto& obs : equalTimeObservables_) {
-            obs.accumulate(comm_);
+            obs.accumulate(lat, comm_);
         }
     }
 
@@ -389,17 +424,17 @@ public:
             scalarObservable::jackknife(obs.filename(), comm_, rank_);
         }
         for (auto& obs : equalTimeObservables_) {
-            equalTimeObservable::jackknife(obs.name(), comm_, rank_);
+            equalTimeObservable::jackknife(obs.filename(), comm_, rank_);
         }
         MPI_Barrier(comm_);
     }
 };
 
 namespace Observables {
-    double calculate_density(const std::vector<GF>& greens);
-    double calculate_doubleOccupancy(const std::vector<GF>& greens);
-    double calculate_swavePairing(const std::vector<GF>& greens);
-    arma::mat calculate_densityCorr(const std::vector<GF>& greens);
+    double calculate_density(const std::vector<GF>& greens, const Lattice& lat);
+    double calculate_doubleOccupancy(const std::vector<GF>& greens, const Lattice& lat);
+    double calculate_swavePairing(const std::vector<GF>& greens, const Lattice& lat);
+    arma::mat calculate_densityCorr(const std::vector<GF>& greens, const Lattice& lat);
 }
 
 #endif
