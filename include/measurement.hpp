@@ -245,7 +245,7 @@ public:
         if (rank == 0) {
             char fname[256];
             std::snprintf(fname, sizeof(fname),
-                          "results/%s/bin_%04d.dat", filename_.c_str(), bin_counter++);
+                          "results/%s/binR_%04d.dat", filename_.c_str(), bin_counter++);
 
             std::ofstream out(fname);
             out << std::fixed << std::setprecision(12)
@@ -343,6 +343,112 @@ public:
                 << std::setw(20) << mError << '\n';                                                                                                                                                                    
         }                                                                                                                                                
     } 
+
+    // ------------------------------------------------------------------
+    //  χ(r) → χ(k)  Fourier transform for every stored bin
+    // ------------------------------------------------------------------
+    void fourierTransform(const Lattice& lat, int rank)
+    {
+        if (rank != 0) return;
+
+        const auto& kpts = lat.k_points();        // already shifted to (-π,π]
+        const int  nk    = static_cast<int>(kpts.size());
+        const int  n_orb = lat.n_orb();
+
+        int bin_idx = 0;
+        while (true) {
+            char rname[256];
+            std::snprintf(rname, sizeof(rname),
+                          "results/%s/binR_%04d.dat", filename_.c_str(), bin_idx);
+            std::ifstream rin(rname);
+            if (!rin.good()) break;                 // no more bins
+
+            // read χ(r) into a cube (a,b,rx,ry)
+            arma::field<arma::mat> chi_r(n_orb, n_orb);
+            for (int a = 0; a < n_orb; ++a)
+                for (int b = 0; b < n_orb; ++b)
+                    chi_r(a,b).zeros(lat.Lx(), lat.Ly());
+
+            std::string line;
+            std::getline(rin, line);                // skip header
+            while (std::getline(rin, line)) {
+                if (line.empty() || line[0] == '#') continue;
+                std::istringstream iss(line);
+                double rx, ry; int a, b; double v;
+                if (!(iss >> rx >> ry >> a >> b >> v)) continue;
+
+                // map (rx,ry) back to array indices
+                int ix = static_cast<int>(rx / lat.a1()[0] + lat.Lx()/2 - 1);
+                int iy = static_cast<int>(ry / lat.a2()[1] + lat.Ly()/2 - 1);
+                if (ix < 0 || ix >= lat.Lx()) continue;
+                if (iy < 0 || iy >= lat.Ly()) continue;
+                chi_r(a,b)(ix, iy) = v;
+            }
+            rin.close();
+
+            // FFT for every orbital pair
+            arma::field<arma::cx_mat> chi_k(n_orb, n_orb);
+            for (int a = 0; a < n_orb; ++a)
+                for (int b = 0; b < n_orb; ++b)
+                    chi_k(a,b).set_size(nk, 1);        // store per k
+
+            const std::array<double,2>& a1 = lat.a1();
+            const std::array<double,2>& a2 = lat.a2();
+
+            for (int kidx = 0; kidx < nk; ++kidx) {
+                const auto& k = kpts[kidx];
+                for (int a = 0; a < n_orb; ++a) {
+                    for (int b = 0; b < n_orb; ++b) {
+                        std::complex<double> sum(0.0, 0.0);
+                        for (int rx = 0; rx < lat.Lx(); ++rx) {
+                            for (int ry = 0; ry < lat.Ly(); ++ry) {
+                                double x = (rx - lat.Lx()/2 + 1) * a1[0]
+                                         + (ry - lat.Ly()/2 + 1) * a2[0];
+                                double y = (rx - lat.Lx()/2 + 1) * a1[1]
+                                         + (ry - lat.Ly()/2 + 1) * a2[1];
+                                double phase = k[0]*x + k[1]*y;
+                                sum += chi_r(a,b)(rx,ry) *
+                                       std::complex<double>(std::cos(phase),
+                                                            -std::sin(phase));
+                            }
+                        }
+                        chi_k(a,b)(kidx, 0) = sum;
+                    }
+                }
+                // normalise by number of real-space lattice points
+                const double invN = 1.0 / (lat.Lx() * lat.Ly());
+                for (int a = 0; a < n_orb; ++a)
+                    for (int b = 0; b < n_orb; ++b)
+                        chi_k(a,b)(kidx, 0) *= invN;
+            }
+
+            // write k-space bin file
+            char kname[256];
+            std::snprintf(kname, sizeof(kname),
+                          "results/%s/binK_%04d.dat", filename_.c_str(), bin_idx);
+            std::ofstream kout(kname);
+            kout << std::fixed << std::setprecision(12)
+                 << std::setw(20) << "kx"
+                 << std::setw(20) << "ky"
+                 << std::setw(4)  << "a"
+                 << std::setw(4)  << "b"
+                 << std::setw(20) << "re"
+                 << std::setw(20) << "im\n";
+
+            for (int kidx = 0; kidx < nk; ++kidx) {
+                const auto& k = kpts[kidx];
+                for (int a = 0; a < n_orb; ++a)
+                    for (int b = 0; b < n_orb; ++b)
+                        kout << std::setw(20) << k[0]
+                             << std::setw(20) << k[1]
+                             << std::setw(4)  << a
+                             << std::setw(4)  << b
+                             << std::setw(20) << std::real(chi_k(a,b)(kidx))
+                             << std::setw(20) << std::imag(chi_k(a,b)(kidx)) << '\n';
+            }
+            ++bin_idx;
+        }
+    }
 };
 
 class MeasurementManager {
@@ -389,6 +495,13 @@ public:
         }
     }
 
+    // Fourier transform
+    void fourierTransform(const Lattice& lat) {
+        for (auto& obs : equalTimeObservables_) {
+            obs.fourierTransform(lat, rank_);
+        }
+        MPI_Barrier(comm_);
+    }
 
     // jackknife analysis
     void jacknifeAnalysis() {

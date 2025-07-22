@@ -145,9 +145,11 @@ int main(int argc, char** argv) {
     // -----------------------------------------------------------------
     
     // Final analysis
-    utility::io::print_info("Final analysis: Jackknife resampling of data files \n");
+    utility::io::print_info("Final Data Analysis: Fourier Transform + Jacknife Analysis \n");
+    measurements.fourierTransform(lat);
     measurements.jacknifeAnalysis();
 
+    // Computational time details
     double total_time = 0.0;
     MPI_Reduce(&local_time, &total_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 
