@@ -520,7 +520,7 @@ public:
 class MeasurementManager {
 private:                                                                                                                                                                                                           
     std::vector<scalarObservable> scalarObservables_;                                                                                                                                                              
-    std::vector<std::function<double(const std::vector<GF>&, const Lattice&)>> calculators_;                                                                                                                       
+    std::vector<std::function<double(const std::vector<GF>&, const Lattice&)>> scalarCalculators_;                                                                                                                       
     MPI_Comm comm_;                                                                                                                                                                                                
     int rank_;                                                                                                                                                                                                     
                                                                                                                                                                                                                    
@@ -533,7 +533,7 @@ public:
     void addScalar(const std::string& name, 
              std::function<double(const std::vector<GF>&, const Lattice& lat)> calculator) {
         scalarObservables_.emplace_back(name, rank_);
-        calculators_.push_back(calculator);
+        scalarCalculators_.push_back(calculator);
     }
 
     void addEqualTime(const std::string& name,
@@ -543,8 +543,8 @@ public:
     }
 
     void measure(const std::vector<GF>& greens, const Lattice& lat) {
-        for (size_t i = 0; i < calculators_.size(); ++i) {
-            scalarObservables_[i] += calculators_[i](greens, lat);
+        for (size_t i = 0; i < scalarCalculators_.size(); ++i) {
+            scalarObservables_[i] += scalarCalculators_[i](greens, lat);
         }
         for (size_t i = 0; i < eqTimeCalculators_.size(); ++i) {
             equalTimeObservables_[i] += eqTimeCalculators_[i](greens, lat);

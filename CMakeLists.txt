@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(dqmc_hubbard CXX)
+project(dqmc CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -38,6 +38,7 @@ endif()
 # Include directories
 include_directories(
     ${MPI_CXX_INCLUDE_PATH}
+    ${MPI_CXX_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/external
     ${ARMADILLO_INCLUDE_DIRS}
@@ -54,10 +55,10 @@ set(SOURCES
 )
 
 # Add executable
-add_executable(dqmc_hubbard ${SOURCES})
+add_executable(dqmc ${SOURCES})
 
 # Link libraries
-target_link_libraries(dqmc_hubbard
+target_link_libraries(dqmc
     ${MPI_CXX_LIBRARIES}
     ${ARMADILLO_LIBRARIES}
     ${MKL_LIBRARIES}
@@ -65,7 +66,7 @@ target_link_libraries(dqmc_hubbard
 )
 
 # Set Armadillo to use MKL
-target_compile_definitions(dqmc_hubbard PRIVATE 
+target_compile_definitions(dqmc PRIVATE 
     ARMA_USE_MKL_ALLOC
     ARMA_USE_MKL
 )
