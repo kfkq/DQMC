@@ -43,6 +43,17 @@ namespace linalg {
         return mat * arma::diagmat(diag);
     }
 
+    inline GreenFunc eye_minus_mat(const Matrix mat) {
+        /*
+        / Compute (I - G)
+        /
+        */
+
+        const int ns = mat.n_rows;
+
+        return arma::eye(ns, ns) - mat;
+    }
+
     class LDR {
     private:
         Matrix L_;    // Left matrix
@@ -273,6 +284,60 @@ namespace linalg {
             // Solve M * X = DL1 for X, then multiply by RD2
             Matrix X;
             arma::solve(X, M, DL1);
+            return RD2 * X;
+        }
+
+        static GreenFunc inv_invldr_plus_ldr(const LDR& ldr1, const LDR& ldr2) {
+            /*
+            / Computes G = [F1⁻¹ + F2]⁻¹ in a numerically stable way, where
+            / F₁ = ldr1 = L₁D₁R₁ and F2 = ldr2 = L2D2R2.
+            / This is typically used to calculate the time-displaced Green's function.
+            /
+            / The stable formula is:
+            /   G = R2⁻¹ D2,max⁻¹ M⁻¹ D₁,min⁻¹ R₁
+            /   M = D₁,max⁻¹ L₁† R2⁻¹ D2,max⁻¹ + D₁,min R₁ L2 D2,min
+            */
+
+            const int n = ldr1.n_rows();
+
+            // Step 1: Split diagonal matrices D₁ and D2 into max/min parts
+            Vector d1_max = ldr1.d();
+            Vector d1_min = arma::ones(n);
+            for (arma::uword i = 0; i < n; ++i) {
+                if (d1_max(i) < 1.0) {
+                    d1_min(i) = d1_max(i);
+                    d1_max(i) = 1.0;
+                }
+            }
+            Vector d1_max_inv = 1.0 / d1_max;
+
+            Vector d2_max = ldr2.d();
+            Vector d2_min = arma::ones(n);
+            for (arma::uword i = 0; i < n; ++i) {
+                if (d2_max(i) < 1.0) {
+                    d2_min(i) = d2_max(i);
+                    d2_max(i) = 1.0;
+                }
+            }
+            Vector d2_max_inv = 1.0 / d2_max;
+
+            // Step 2: Calculate the two terms for M
+            
+            // Term A: D1,max⁻¹ L1† R2⁻¹ D2,max⁻¹
+            // First, compute X = R2⁻¹ D2,max⁻¹ by solving R2 * X = D2,max⁻¹
+            Matrix RD2;
+            arma::solve(RD2, ldr2.R(), arma::diagmat(d2_max_inv));
+
+            Matrix DR1 = diag_mul_mat(d1_min, ldr1.R());
+
+            Matrix M = diag_mul_mat(d1_max_inv, ldr1.L().t() * RD2);
+            M += mat_mul_diag(DR1 * ldr2.L(), d2_min);
+
+            // Step 3:  Compute M⁻¹ * D₁,min R₁
+            Matrix X;
+            arma::solve(X, M, DR1);
+
+            // Step 4: final Green's function G
             return RD2 * X;
         }
     };

@@ -22,8 +22,10 @@ using GreenFunc = arma::mat; // in general should be complex, but current attrac
 
 struct GF {
     GreenFunc Gtt;  // G(τ,τ)
-    GreenFunc Gt0;  // G(τ,0)
-    GreenFunc G0t;  // G(0,τ)
+    //std::vector<GreenFunc> Gt0;  // G(τ,0)
+    //std::vector<GreenFunc> G0t;  // G(0,τ)
+    GreenFunc Gt0;
+    GreenFunc G0t;
 };
 
 class DQMC {
@@ -43,21 +45,27 @@ private:
 
     void calculate_Bproduct(Matrix& Bprod, int stack_idx, int nfl);
 
-    void propagate_equaltime_GF(GF& greens, int l, int nfl);
+    void propagate_GF_forward(GF& greens, int l, int nfl);
     void update_stack_forward(linalg::LDRStack& propagation_stack, Matrix& Bprod, int i_stack);
-    void update_equaltime_GF_at_stabilization_forward(GF& greens, linalg::LDRStack& propagation_stack, int l);
+    void stabilize_GF_forward(GF& greens, linalg::LDRStack& propagation_stack, int l);
 
-    void propagate_equaltime_GF_reverse(GF& greens, int l, int nfl);
+    void propagate_GF_backward(GF& greens, int l, int nfl);
     void update_stack_backward(linalg::LDRStack& propagation_stack, Matrix& Bprod, int i_stack);
-    void update_equaltime_GF_at_stabilization_backward(GF& greens, linalg::LDRStack& propagation_stack, int l);
+    void stabilize_GF_backward(GF& greens, linalg::LDRStack& propagation_stack, int l);
+
+    void propagate_unequalTime_GF_forward(GF& greens, int l, int nfl);
+    void propagate_Bt0_Bbt(linalg::LDR& Bt0, linalg::LDR& Bbt, 
+                            linalg::LDRStack& propagation_stack,
+                            Matrix& Bprod, int i_stack);
+    void stabilize_unequalTime(GF& greens, linalg::LDR& Bt0, linalg::LDR& Bbt, int l);
 
     double check_error(const Matrix& Gtt_temp, const Matrix& Gtt);
 public:
 
     // Constructor
     DQMC(model::HubbardAttractiveU& model, int n_stab)
-        : model_(model), n_stab_(n_stab), n_stack_(model.nt() / n_stab),
-          acc_rate_(0.0), avg_sgn_(1.0) {}
+        : model_(model), n_stab_(n_stab),
+          n_stack_(model.nt() / n_stab), acc_rate_(0.0), avg_sgn_(1.0) {}
 
     // Getters
     double acc_rate() { return acc_rate_; }
@@ -69,6 +77,8 @@ public:
     // sweep
     void sweep_0_to_beta(std::vector<GF>& greens, std::vector<linalg::LDRStack>& propagation_stacks);
     void sweep_beta_to_0(std::vector<GF>& greens, std::vector<linalg::LDRStack>& propagation_stacks);
+
+    void sweep_unequalTime(std::vector<GF>& greens, std::vector<linalg::LDRStack>& propagation_stacks);
 };
 
 #endif

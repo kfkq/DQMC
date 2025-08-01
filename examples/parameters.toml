@@ -4,14 +4,15 @@ Lx = 8
 Ly = 8
 
 [hubbard]
-U =  6.0              # On-site interaction strength
-t =  1.0              # Hopping parameters
-mu = -0.3             # Chemical potential
+U =  6.0                        # On-site interaction strength
+t =  1.0                        # Hopping parameters
+mu = -0.3                       # Chemical potential
 
 [simulation]
-beta = 6.0           # Inverse temperature
-nt = 120              # Number of Imaginary time step
-n_therms = 1000       # Number of thermalization sweeps
-n_sweeps = 50      # Number of Monte Carlo sweeps
-n_bins = 100         # Number of total bins. each bin contain average observable after n_sweeps 
-n_stab = 8          # Length of numerical stabilization in imaginary time propagation
+beta = 6.0                      # Inverse temperature
+nt = 120                        # Number of Imaginary time step
+n_therms = 1000                 # Number of thermalization sweeps
+n_sweeps = 50                   # Number of Monte Carlo sweeps
+n_bins = 100                    # Number of total bins. each bin contain average observable after n_sweeps 
+n_stab = 10                      # Length of numerical stabilization in imaginary time propagation
+isMeasureUnequalTime = true     # whether to measure unequaltime

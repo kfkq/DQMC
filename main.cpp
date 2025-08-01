@@ -62,6 +62,8 @@ int main(int argc, char** argv) {
     int n_therms = toml::find<int>(params, "simulation", "n_therms");
     int n_bins = toml::find<int>(params, "simulation", "n_bins");
 
+    bool isUnequalTime = toml::find_or<bool>(params, "simulation", "isMeasureUnequalTime", false);
+
     // Lattice creation
     std::array<double,2> a1{{1.0, 0.0}};
     std::array<double,2> a2{{0.0, 1.0}};
@@ -87,14 +89,16 @@ int main(int argc, char** argv) {
 
     utility::io::print_info(
         "=== DQMC Attractive Hubbard ===\n"
-        "Lattice        : ", latt_type, " ", Lx, "×", Ly, '\n',
-        "t              : ", t, '\n',
-        "U              : ", U, '\n',
-        "mu             : ", mu, '\n',
-        "β              : ", beta, '\n',
-        "Nthermal       : ", n_therms, '\n',
-        "Nsweep per bin : ", n_sweeps, '\n',
-        "Nbin           : ", n_bins, "\n\n"
+        "Lattice                : ", latt_type, " ", Lx, "×", Ly, '\n',
+        "t                      : ", t, '\n',
+        "U                      : ", U, '\n',
+        "mu                     : ", mu, '\n',
+        "β                      : ", beta, '\n',
+        "Trotter Discretization : ", dtau, '\n',
+        "Nthermal               : ", n_therms, '\n',
+        "Nsweep per bin         : ", n_sweeps, '\n',
+        "Nbin                   : ", n_bins, "\n"
+        "UnequalTime            : ", isUnequalTime, "\n\n"
     );
 
     // measurement container
@@ -103,6 +107,10 @@ int main(int argc, char** argv) {
     measurements.addScalar("doubleOcc", Observables::calculate_doubleOccupancy);
     measurements.addScalar("swave", Observables::calculate_swavePairing);
     measurements.addEqualTime("densityCorr", Observables::calculate_densityCorr);
+
+    // if (isMeasureUnequalTime) {
+    //     measurements.addUnequalTime("greenTau", Observables::calculate_greenTau);
+    // }
 
     // ----------------------------------------------------------------- 
     //                     Start of DQMC simulation
@@ -127,6 +135,7 @@ int main(int argc, char** argv) {
     double local_time = 0.0;
     for (int ibin = 0; ibin < n_bins; ++ibin) {
         const auto t0_bin = std::chrono::steady_clock::now();   // start timer for this bin
+
         for (int isweep = 0; isweep < n_sweeps; ++isweep) {
             sim.sweep_0_to_beta(greens, propagation_stacks);
             measurements.measure(greens, lat);
@@ -134,6 +143,12 @@ int main(int argc, char** argv) {
             sim.sweep_beta_to_0(greens, propagation_stacks);
             measurements.measure(greens, lat);
         }
+        if (isUnequalTime) {
+            // do sweep once without updating HS field for unequal time measurements.
+            sim.sweep_unequalTime(greens, propagation_stacks);
+            //sim.measure_unequalTime(greens, lat);
+        }
+
         local_time += std::chrono::duration<double>(
             std::chrono::steady_clock::now() - t0_bin).count();
 
