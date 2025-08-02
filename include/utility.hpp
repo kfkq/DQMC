@@ -16,8 +16,34 @@
 #include <mpi.h>
 #include <iostream>
 #include <iomanip>
+#include <sys/stat.h>
 
 namespace utility {
+    static bool ensure_dir(const std::string& path, int rank)
+    {
+        if (rank == 0) {
+            struct stat info;
+            if (stat(path.c_str(), &info) == 0) {
+                // Directory exists: remove it recursively
+                #ifdef _WIN32
+                    std::string cmd = "rmdir /s /q \"" + path + "\"";
+                    int status = system(cmd.c_str());
+                #else
+                    std::string cmd = "rm -rf \"" + path + "\"";
+                    int status = system(cmd.c_str());
+                #endif
+                if (status != 0) return false;
+            }
+            #ifdef _WIN32
+                int status = _mkdir(path.c_str());
+            #else
+                int status = mkdir(path.c_str(), 0755);
+            #endif
+            if (status != 0) return false;
+        }
+        MPI_Barrier(MPI_COMM_WORLD);
+        return true;
+    }
     class random {
     private:
         // Static random engine getter 
