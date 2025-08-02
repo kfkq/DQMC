@@ -107,10 +107,9 @@ int main(int argc, char** argv) {
     measurements.addScalar("doubleOcc", Observables::calculate_doubleOccupancy);
     measurements.addScalar("swave", Observables::calculate_swavePairing);
     measurements.addEqualTime("densityCorr", Observables::calculate_densityCorr);
-
-    // if (isMeasureUnequalTime) {
-    //     measurements.addUnequalTime("greenTau", Observables::calculate_greenTau);
-    // }
+    if (isUnequalTime) {
+         measurements.addUnequalTime("greenTau", Observables::calculate_greenTau);
+    }
 
     // ----------------------------------------------------------------- 
     //                     Start of DQMC simulation
@@ -142,11 +141,12 @@ int main(int argc, char** argv) {
 
             sim.sweep_beta_to_0(greens, propagation_stacks);
             measurements.measure(greens, lat);
-        }
-        if (isUnequalTime) {
-            // do sweep once without updating HS field for unequal time measurements.
-            sim.sweep_unequalTime(greens, propagation_stacks);
-            //sim.measure_unequalTime(greens, lat);
+
+            if (isUnequalTime) {
+                // do sweep once without updating HS field for unequal time measurements.
+                sim.sweep_unequalTime(greens, propagation_stacks);
+                measurements.measure_unequalTime(greens, lat);
+            }
         }
 
         local_time += std::chrono::duration<double>(

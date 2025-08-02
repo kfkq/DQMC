@@ -10,23 +10,27 @@ double calculate_density(const std::vector<GF>&  greens, const Lattice& lat)
     /*
     * calculate_density (scalar)
     * -----------------
-    * Computes the average particle density per site,
     *   <n> = (1/N) Σ_i <n_i> = (1/N) Σ_i <n_{i↑} + n_{i↓}>.
-    * 
-    * For the attractive Hubbard model the spin-up and spin-down Green's
-    * functions are identical, so we need measure only one spin component.
-    * Using the relation
-    *   <n_{iσ}> = 1 - <c_{iσ} c_{iσ}^†> = 1 - G_{iσ,iσ}(τ,τ),
-    * the total density becomes
-    *   <n> = 2 ( 1 - (1/N) Tr G↑ )
+    *   <n_{iσ}> = 1 - <c_{iσ} c_{iσ}^†> = 1 - G_{iσ,iσ},
     */
 
-    double density_tot = 0.0;
-    const int n_sites = greens[0].Gtt.n_rows;
+    int Lx = lat.Lx();
+    int Ly = lat.Ly();
+    int lat_size = lat.size(); 
+    int n_sites  = lat.n_sites();
 
-    density_tot += 1.0 - arma::trace(greens[0].Gtt) / n_sites;
-    
-    return 2.0 * density_tot;
+    GreenFunc Gup = greens[0].G00;
+    GreenFunc Gdn = greens[0].G00; 
+    GreenFunc Gup_c = arma::eye(n_sites, n_sites) - Gup;
+    GreenFunc Gdn_c = arma::eye(n_sites, n_sites) - Gdn;
+
+    double density = 0.0;
+    for (int i = 0; i < n_sites; i++) {
+        density += Gup_c(i,i) + Gdn_c(i,i);
+    }
+    density = density / n_sites;
+
+    return density;
 }
 
 
@@ -35,63 +39,71 @@ double calculate_doubleOccupancy(const std::vector<GF>&  greens, const Lattice& 
     /*
     * calculate_doubleOccupancy (scalar)
     * -------------------------
-    * Computes the average double occupancy per site,
     *   <D> = (1/N) Σ_i <n_{i↑} n_{i↓}>,
-    * where n_{iσ} is the density of spin-σ electrons on site i.
-    * 
-    * For the attractive Hubbard model with spin symmetry:
-    *   n_{i↑} = 1 - <c_{i↑} c_{i↑}^†> = 1 - G_{i,i}
-    *   n_{i↓} = n_{i↑}  (up-down symmetry)
-    * Therefore the local double occupancy on site i is (1 - G↑_{i,i})².
     */
 
-    const int n_sites = greens[0].Gtt.n_rows;
-    
-    double d_occ = 0.0;
-    for(int i = 0; i < n_sites; i++) {
-        double n_up = 1.0 - greens[0].Gtt(i,i);
-        d_occ += std::pow(n_up,2);
-    }
+    int Lx = lat.Lx();
+    int Ly = lat.Ly();
+    int lat_size = lat.size(); 
+    int n_sites  = lat.n_sites();
 
-    return d_occ / n_sites;
+    GreenFunc Gup = greens[0].G00;
+    GreenFunc Gdn = greens[0].G00; 
+    GreenFunc Gup_c = arma::eye(n_sites, n_sites) - Gup;
+    GreenFunc Gdn_c = arma::eye(n_sites, n_sites) - Gdn;
+
+    double d_occ = 0.0;
+    for (int i = 0; i < n_sites; i++) {
+        d_occ += Gup_c(i,i) * Gdn_c(i,i);
+    }
+    d_occ = d_occ / n_sites;
+
+    return d_occ;
 }
 
 double calculate_swavePairing(const std::vector<GF>&  greens, const Lattice& lat) {
     /*
     * calculate_swavePairing (scalar)
     * ----------------------
-    * Computes the static s-wave pairing structure factor at zero momentum,
     *   χ_{s-wave}(q=0) = (1/N) Σ_{i,j} <Δ_i^† Δ_j>,
-    * where Δ_i^† = c_{i↑}^† c_{i↓}^† is the on-site s-wave pair creation operator.
+    *   Δ_i^† = c_{i↑}^† c_{i↓}^†
     * 
-    * In terms of Green's functions and wick decomposition:
+    * wick decomposition:
     *   <Δ_i^† Δ_j> = <c_{i↑}^† c_{i↓}^† c_{j↓} c_{j↑}>
                     = <c_{i↑}^† c_{j↑}><c_{i↓}^† c_{j↓}> - <c_{i↑}^† c_{j↓}><c_{i↓}^† c_{j↑}>
     *   With up-down factorization and symmetry, the second term vanishes and the first simplifies to
     *   <Δ_i^† Δ_j> = (δ_{ji} - G↑_{j,i}) (δ_{ji} - G↑_{j,i})
     */
-    
-    const int n_sites = greens[0].Gtt.n_rows;
-    GreenFunc gtt_conj = arma::eye<GreenFunc>(n_sites, n_sites) - greens[0].Gtt;
 
-    // calculate static swave pairing, q = 0
+    int Lx = lat.Lx();
+    int Ly = lat.Ly();
+    int lat_size = lat.size(); 
+    int n_sites  = lat.n_sites();
+
+    GreenFunc Gup = greens[0].G00;
+    GreenFunc Gdn = greens[0].G00; 
+    GreenFunc Gup_c = arma::eye(n_sites, n_sites) - Gup;
+    GreenFunc Gdn_c = arma::eye(n_sites, n_sites) - Gdn;
+
     double swave = 0.0;
     for(int i = 0; i < n_sites; i++) {
         for(int j = 0; j < n_sites; j++) {
-            swave += std::pow(gtt_conj(j, i),2);
+            swave += Gup_c(j,i) * Gdn_c(j,i);
         }
     }
-    return swave / n_sites;
+    swave = swave / n_sites;
+
+    return swave;
 }
 
 Matrix calculate_densityCorr(const std::vector<GF>& greens, const Lattice& lat) {
     
-    const int n_sites = greens[0].Gtt.n_rows;
+    const int n_sites = greens[0].G00.n_rows;
 
     // Compute average density
     double n_avg = 0.0;
     for (int i = 0; i < n_sites; ++i) {
-        n_avg += 2.0 * (1.0 - greens[0].Gtt(i,i));
+        n_avg += 2.0 * (1.0 - greens[0].G00(i,i));
     }
     n_avg /= n_sites;
 
@@ -101,19 +113,45 @@ Matrix calculate_densityCorr(const std::vector<GF>& greens, const Lattice& lat) 
 
     // Compute <n_i n_j> - <n_i><n_j>
     for (int i = 0; i < n_sites; ++i) {
-        double n_i = 2.0 * (1.0 - greens[0].Gtt(i,i));
+        double n_i = 2.0 * (1.0 - greens[0].G00(i,i));
         for (int j = 0; j < n_sites; ++j) {
-            double n_j = 2.0 * (1.0 - greens[0].Gtt(j,j));
+            double n_j = 2.0 * (1.0 - greens[0].G00(j,j));
             
             // Connected correlation: <n_i n_j> - <n_i><n_j>
             double density_product = n_i * n_j;
-            double exchange_term = 2.0 * (1.0 - greens[0].Gtt(j,i)) * greens[0].Gtt(i,j);
+            double exchange_term = 2.0 * (1.0 - greens[0].G00(j,i)) * greens[0].G00(i,j);
             
             ninj_conn(i,j) = density_product + exchange_term - n_avg * n_avg;
         }
     }
 
     return ninj_conn;
+}
+
+std::vector<Matrix> calculate_greenTau(const std::vector<GF>& greens, const Lattice& lat) {
+    int Lx = lat.Lx();
+    int Ly = lat.Ly();
+    int lat_size = lat.size(); 
+    int n_sites  = lat.n_sites();
+    int n_tau = greens[0].Gtt.size();
+
+    GreenFunc Gup = greens[0].G00;
+    GreenFunc Gdn = greens[0].G00; 
+    GreenFunc Gup_c = arma::eye(n_sites, n_sites) - Gup;
+    GreenFunc Gdn_c = arma::eye(n_sites, n_sites) - Gdn;
+
+    std::vector<GreenFunc> greenTau(n_tau, GreenFunc(n_sites,n_sites));
+    for (int tau = 0; tau < n_tau; ++tau) {
+        GreenFunc Gttup = greens[0].Gtt[tau];
+        GreenFunc Gt0up = greens[0].Gt0[tau];
+        GreenFunc G0tup = greens[0].G0t[tau];
+        GreenFunc Gttdn = greens[0].Gtt[tau];
+        GreenFunc Gt0dn = greens[0].Gt0[tau];
+        GreenFunc G0tdn = greens[0].G0t[tau];
+
+        greenTau[tau] = Gt0up + Gt0dn;
+    }
+    return greenTau;
 }
 
 } //end of Observables namespace

@@ -12,6 +12,7 @@
 #include <sstream>
 #include <map>
 #include <tuple>
+#include <set>
 #include <sys/stat.h>
 
 namespace transform {
@@ -78,14 +79,23 @@ static bool ensure_dir(const std::string& path, int rank)
 {
     if (rank == 0) {
         struct stat info;
-        if (stat(path.c_str(), &info) != 0) {
+        if (stat(path.c_str(), &info) == 0) {
+            // Directory exists: remove it recursively
 #ifdef _WIN32
-            int status = _mkdir(path.c_str());
+            std::string cmd = "rmdir /s /q \"" + path + "\"";
+            int status = system(cmd.c_str());
 #else
-            int status = mkdir(path.c_str(), 0755);
+            std::string cmd = "rm -rf \"" + path + "\"";
+            int status = system(cmd.c_str());
 #endif
             if (status != 0) return false;
         }
+#ifdef _WIN32
+        int status = _mkdir(path.c_str());
+#else
+        int status = mkdir(path.c_str(), 0755);
+#endif
+        if (status != 0) return false;
     }
     MPI_Barrier(MPI_COMM_WORLD);
     return true;
@@ -517,6 +527,375 @@ public:
     }
 };
 
+class unequalTimeObservable {
+private:
+    std::string filename_;
+    int matrix_size_ = 0;
+    int n_tau_ = 0;
+
+    std::vector<arma::mat> local_sum_;  // one matrix per tau slice
+    int local_count_ = 0;
+
+public:
+    unequalTimeObservable(const std::string& filename, int rank)
+        : filename_(filename) {
+        if (!ensure_dir("results/" + filename_, rank)) {
+            throw std::runtime_error("Could not create results/" + filename_ + " directory");
+        }
+    }
+
+    const std::string& filename() const { return filename_; }
+
+    void operator+=(const std::vector<arma::mat>& tau_matrices) {
+        if (matrix_size_ == 0) {
+            matrix_size_ = tau_matrices[0].n_rows;
+            n_tau_ = tau_matrices.size();
+            local_sum_.resize(n_tau_);
+            for (int tau = 0; tau < n_tau_; ++tau) {
+                local_sum_[tau].set_size(matrix_size_, matrix_size_);
+                local_sum_[tau].zeros();
+            }
+        }
+        
+        for (int tau = 0; tau < n_tau_; ++tau) {
+            local_sum_[tau] += tau_matrices[tau];
+        }
+        ++local_count_;
+    }
+
+    void accumulate(const Lattice& lat, MPI_Comm comm, int rank) {
+        const int n_sites = local_sum_[0].n_rows;
+        std::vector<arma::mat> global_sum(n_tau_);
+        for (int tau = 0; tau < n_tau_; ++tau) {
+            global_sum[tau].set_size(n_sites, n_sites);
+            global_sum[tau].zeros();
+        }
+        int global_count = 0;
+
+        // MPI reduction for each tau slice
+        for (int tau = 0; tau < n_tau_; ++tau) {
+            MPI_Allreduce(local_sum_[tau].memptr(), global_sum[tau].memptr(),
+                          n_sites * n_sites, MPI_DOUBLE, MPI_SUM, comm);
+        }
+        MPI_Allreduce(&local_count_, &global_count, 1, MPI_INT, MPI_SUM, comm);
+
+        static int bin_counter = 0;
+        if (rank == 0) {
+            char fname[256];
+            std::snprintf(fname, sizeof(fname),
+                          "results/%s/binR_%04d.dat", filename_.c_str(), bin_counter++);
+
+            std::ofstream out(fname);
+            out << std::fixed << std::setprecision(12)
+                << std::setw(8)  << "tau"
+                << std::setw(20) << "dx"
+                << std::setw(20) << "dy"
+                << std::setw(4)  << "a"
+                << std::setw(4)  << "b"
+                << std::setw(20) << "value" << '\n';
+
+            const int n_orb = lat.n_orb();
+            const int Lx = lat.Lx();
+            const int Ly = lat.Ly();
+            const std::array<double,2>& a1 = lat.a1();
+            const std::array<double,2>& a2 = lat.a2();
+
+            for (int tau = 0; tau < n_tau_; ++tau) {
+                // Convert site matrix to real-space field for this tau
+                arma::field<arma::mat> chi_r = transform::chi_site_to_chi_r(
+                    global_sum[tau] / global_count, lat);
+
+                for (int rx = 0; rx < Lx; ++rx) {
+                    for (int ry = 0; ry < Ly; ++ry) {
+                        for (int a = 0; a < n_orb; ++a) {
+                            for (int b = 0; b < n_orb; ++b) {
+                                double dx = (rx - Lx/2 + 1) * a1[0] + (ry - Ly/2 + 1) * a2[0];
+                                double dy = (rx - Lx/2 + 1) * a1[1] + (ry - Ly/2 + 1) * a2[1];
+                                
+                                out << std::setw(8)  << tau
+                                    << std::setw(20) << dx
+                                    << std::setw(20) << dy
+                                    << std::setw(4)  << a
+                                    << std::setw(4)  << b
+                                    << std::setw(20) << std::setprecision(12)
+                                    << chi_r(a,b)(rx,ry) << '\n';
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Reset accumulators
+        for (int tau = 0; tau < n_tau_; ++tau) {
+            local_sum_[tau].zeros();
+        }
+        local_count_ = 0;
+    }
+
+    void fourierTransform(const Lattice& lat, int rank) {
+        if (rank != 0) return;
+
+        const auto& kpts = lat.k_points();
+        const int nk = static_cast<int>(kpts.size());
+        const int n_orb = lat.n_orb();
+
+        int bin_idx = 0;
+        while (true) {
+            char rname[256];
+            std::snprintf(rname, sizeof(rname),
+                          "results/%s/binR_%04d.dat", filename_.c_str(), bin_idx);
+            std::ifstream rin(rname);
+            if (!rin.good()) break;
+
+            // Read χ(τ,r) into a field indexed by tau
+            std::map<int, arma::field<arma::mat>> chi_tau_r;
+            
+            std::string line;
+            std::getline(rin, line); // skip header
+            while (std::getline(rin, line)) {
+                if (line.empty() || line[0] == '#') continue;
+                std::istringstream iss(line);
+                int tau; double rx, ry; int a, b; double v;
+                if (!(iss >> tau >> rx >> ry >> a >> b >> v)) continue;
+
+                // Initialize field for this tau if needed
+                if (chi_tau_r.find(tau) == chi_tau_r.end()) {
+                    chi_tau_r[tau] = arma::field<arma::mat>(n_orb, n_orb);
+                    for (int aa = 0; aa < n_orb; ++aa)
+                        for (int bb = 0; bb < n_orb; ++bb)
+                            chi_tau_r[tau](aa,bb).zeros(lat.Lx(), lat.Ly());
+                }
+
+                // Map (rx,ry) back to array indices
+                int ix = static_cast<int>(rx / lat.a1()[0] + lat.Lx()/2 - 1);
+                int iy = static_cast<int>(ry / lat.a2()[1] + lat.Ly()/2 - 1);
+                if (ix < 0 || ix >= lat.Lx()) continue;
+                if (iy < 0 || iy >= lat.Ly()) continue;
+                chi_tau_r[tau](a,b)(ix, iy) = v;
+            }
+            rin.close();
+
+            // Write k-space bin file
+            char kname[256];
+            std::snprintf(kname, sizeof(kname),
+                          "results/%s/binK_%04d.dat", filename_.c_str(), bin_idx);
+            std::ofstream kout(kname);
+            kout << std::fixed << std::setprecision(12)
+                 << std::setw(8)  << "tau"
+                 << std::setw(20) << "kx"
+                 << std::setw(20) << "ky"
+                 << std::setw(4)  << "a"
+                 << std::setw(4)  << "b"
+                 << std::setw(20) << "re"
+                 << std::setw(20) << "im\n";
+
+            const std::array<double,2>& a1 = lat.a1();
+            const std::array<double,2>& a2 = lat.a2();
+
+            // FFT for each tau slice
+            for (const auto& [tau, chi_r] : chi_tau_r) {
+                for (int kidx = 0; kidx < nk; ++kidx) {
+                    const auto& k = kpts[kidx];
+                    for (int a = 0; a < n_orb; ++a) {
+                        for (int b = 0; b < n_orb; ++b) {
+                            std::complex<double> sum(0.0, 0.0);
+                            for (int rx = 0; rx < lat.Lx(); ++rx) {
+                                for (int ry = 0; ry < lat.Ly(); ++ry) {
+                                    double x = (rx - lat.Lx()/2 + 1) * a1[0]
+                                             + (ry - lat.Ly()/2 + 1) * a2[0];
+                                    double y = (rx - lat.Lx()/2 + 1) * a1[1]
+                                             + (ry - lat.Ly()/2 + 1) * a2[1];
+                                    double phase = k[0]*x + k[1]*y;
+                                    sum += chi_r(a,b)(rx,ry) *
+                                           std::complex<double>(std::cos(phase),
+                                                                -std::sin(phase));
+                                }
+                            }
+                            // Normalize by number of real-space lattice points
+                            sum /= (lat.Lx() * lat.Ly());
+                            
+                            kout << std::setw(8)  << tau
+                                 << std::setw(20) << k[0]
+                                 << std::setw(20) << k[1]
+                                 << std::setw(4)  << a
+                                 << std::setw(4)  << b
+                                 << std::setw(20) << std::real(sum)
+                                 << std::setw(20) << std::imag(sum) << '\n';
+                        }
+                    }
+                }
+            }
+            ++bin_idx;
+        }
+    }
+
+    void jackknife(int rank) {
+        if (rank != 0) return;
+
+        // Real-space jackknife analysis
+        std::vector<std::string> binsR;
+        for (int idx = 0; ; ++idx) {
+            char fname[256];
+            std::snprintf(fname, sizeof(fname),
+                          "results/%s/binR_%04d.dat", filename_.c_str(), idx);
+            if (!std::ifstream(fname).good()) break;
+            binsR.emplace_back(fname);
+        }
+
+        std::map<std::tuple<int,double,double,int,int>, std::vector<double>> dataR;
+        std::map<int, std::vector<double>> dataR0; // tau -> G_R0 values
+        
+        // No longer needed since we only use (dx=0, dy=0) values
+        
+        for (const std::string& bin : binsR) {
+            std::ifstream in(bin);
+            std::string line; std::getline(in, line); // header
+            
+            // Temporary storage for R0 data per bin (only dx=0, dy=0)
+            std::map<int, double> binR0;
+            
+            while (std::getline(in, line)) {
+                if (line.empty() || line[0] == '#') continue;
+                std::istringstream iss(line);
+                int tau; double dx, dy; int a, b; double v;
+                if (iss >> tau >> dx >> dy >> a >> b >> v) {
+                    dataR[{tau,dx,dy,a,b}].push_back(v);
+                    
+                    // Only accumulate for R0 when dx=0 and dy=0
+                    if (std::abs(dx) < 1e-12 && std::abs(dy) < 1e-12) {
+                        binR0[tau] += v;
+                    }
+                }
+            }
+            
+            // Compute R0 average for this bin (sum over all orbitals at (0,0))
+            for (const auto& [tau, sum] : binR0) {
+                dataR0[tau].push_back(sum);
+            }
+        }
+
+        if (!dataR.empty()) {
+            char outnameR[256];
+            std::snprintf(outnameR, sizeof(outnameR),
+                          "results/%s/statR.dat", filename_.c_str());
+            std::ofstream outR(outnameR);
+            outR << std::fixed << std::setprecision(12)
+                 << std::setw(8)  << "tau"
+                 << std::setw(20) << "dx"
+                 << std::setw(20) << "dy"
+                 << std::setw(4)  << "a"
+                 << std::setw(4)  << "b"
+                 << std::setw(20) << "mean"
+                 << std::setw(20) << "error\n";
+
+            for (const auto& [key, vals] : dataR) {
+                if (vals.size() < 2) continue;
+                const auto [means, errs] = statistics::jackknife(vals);
+                const double mMean = statistics::mean(means);
+                const double mError = statistics::mean(errs);
+                const auto [tau,dx,dy,a,b] = key;
+                outR << std::setw(8)  << tau
+                     << std::setw(20) << dx
+                     << std::setw(20) << dy
+                     << std::setw(4)  << a
+                     << std::setw(4)  << b
+                     << std::setw(20) << mMean
+                     << std::setw(20) << mError << '\n';
+            }
+        }
+
+        // R0 jackknife analysis
+        if (!dataR0.empty()) {
+            char outnameR0[256];
+            std::snprintf(outnameR0, sizeof(outnameR0),
+                          "results/%s/statR0.dat", filename_.c_str());
+            std::ofstream outR0(outnameR0);
+            outR0 << std::fixed << std::setprecision(12)
+                  << std::setw(8)  << "tau"
+                  << std::setw(20) << "mean"
+                  << std::setw(20) << "error\n";
+
+            for (const auto& [tau, vals] : dataR0) {
+                if (vals.size() < 2) continue;
+                const auto [means, errs] = statistics::jackknife(vals);
+                const double mMean = statistics::mean(means);
+                const double mError = statistics::mean(errs);
+                outR0 << std::setw(8)  << tau
+                      << std::setw(20) << mMean
+                      << std::setw(20) << mError << '\n';
+            }
+        }
+
+        // k-space jackknife analysis
+        std::vector<std::string> binsK;
+        for (int idx = 0; ; ++idx) {
+            char fname[256];
+            std::snprintf(fname, sizeof(fname),
+                          "results/%s/binK_%04d.dat", filename_.c_str(), idx);
+            if (!std::ifstream(fname).good()) break;
+            binsK.emplace_back(fname);
+        }
+
+        std::map<std::tuple<int,double,double,int,int>,
+                 std::pair<std::vector<double>,std::vector<double>>> dataK;
+        for (const std::string& bin : binsK) {
+            std::ifstream in(bin);
+            std::string line; std::getline(in, line); // header
+            while (std::getline(in, line)) {
+                if (line.empty() || line[0] == '#') continue;
+                std::istringstream iss(line);
+                int tau; double kx, ky; int a, b; double re, im;
+                if (iss >> tau >> kx >> ky >> a >> b >> re >> im) {
+                    dataK[{tau,kx,ky,a,b}].first.push_back(re);
+                    dataK[{tau,kx,ky,a,b}].second.push_back(im);
+                }
+            }
+        }
+
+        if (!dataK.empty()) {
+            char outnameK[256];
+            std::snprintf(outnameK, sizeof(outnameK),
+                          "results/%s/statK.dat", filename_.c_str());
+            std::ofstream outK(outnameK);
+            outK << std::fixed << std::setprecision(12)
+                 << std::setw(8)  << "tau"
+                 << std::setw(20) << "kx"
+                 << std::setw(20) << "ky"
+                 << std::setw(4)  << "a"
+                 << std::setw(4)  << "b"
+                 << std::setw(20) << "re_mean"
+                 << std::setw(20) << "re_error"
+                 << std::setw(20) << "im_mean"
+                 << std::setw(20) << "im_error\n";
+
+            for (const auto& [key, vecs] : dataK) {
+                const auto& [re_vals, im_vals] = vecs;
+                if (re_vals.size() < 2) continue;
+
+                const auto [re_means, re_errs] = statistics::jackknife(re_vals);
+                const auto [im_means, im_errs] = statistics::jackknife(im_vals);
+
+                const double reMean = statistics::mean(re_means);
+                const double reError = statistics::mean(re_errs);
+                const double imMean = statistics::mean(im_means);
+                const double imError = statistics::mean(im_errs);
+
+                const auto [tau,kx,ky,a,b] = key;
+                outK << std::setw(8)  << tau
+                     << std::setw(20) << kx
+                     << std::setw(20) << ky
+                     << std::setw(4)  << a
+                     << std::setw(4)  << b
+                     << std::setw(20) << reMean
+                     << std::setw(20) << reError
+                     << std::setw(20) << imMean
+                     << std::setw(20) << imError << '\n';
+            }
+        }
+    }
+};
+
 class MeasurementManager {
 private:                                                                                                                                                                                                           
     std::vector<scalarObservable> scalarObservables_;                                                                                                                                                              
@@ -526,6 +905,9 @@ private:
                                                                                                                                                                                                                    
     std::vector<equalTimeObservable> equalTimeObservables_;                                                                                                                                                        
     std::vector<std::function<arma::mat(const std::vector<GF>&, const Lattice&)>> eqTimeCalculators_; 
+
+    std::vector<unequalTimeObservable> unequalTimeObservables_;
+    std::vector<std::function<std::vector<arma::mat>(const std::vector<GF>&, const Lattice&)>> uneqTimeCalculators_;
     
 public:
     MeasurementManager(MPI_Comm comm, int rank) : comm_(comm), rank_(rank) {}
@@ -542,12 +924,24 @@ public:
         eqTimeCalculators_.push_back(calculator);
     }
 
+    void addUnequalTime(const std::string& name,
+                        std::function<std::vector<arma::mat>(const std::vector<GF>&, const Lattice&)> calculator) {
+        unequalTimeObservables_.emplace_back(name, rank_);
+        uneqTimeCalculators_.push_back(calculator);
+    }
+
     void measure(const std::vector<GF>& greens, const Lattice& lat) {
         for (size_t i = 0; i < scalarCalculators_.size(); ++i) {
             scalarObservables_[i] += scalarCalculators_[i](greens, lat);
         }
         for (size_t i = 0; i < eqTimeCalculators_.size(); ++i) {
             equalTimeObservables_[i] += eqTimeCalculators_[i](greens, lat);
+        }
+    }
+
+    void measure_unequalTime(const std::vector<GF>& greens, const Lattice& lat) {
+        for (size_t i = 0; i < uneqTimeCalculators_.size(); ++i) {
+            unequalTimeObservables_[i] += uneqTimeCalculators_[i](greens, lat);
         }
     }
 
@@ -559,11 +953,17 @@ public:
         for (auto& obs : equalTimeObservables_) {
             obs.accumulate(lat, comm_, rank_);
         }
+        for (auto& obs : unequalTimeObservables_) {
+            obs.accumulate(lat, comm_, rank_);
+        }
     }
 
     // Fourier transform
     void fourierTransform(const Lattice& lat) {
         for (auto& obs : equalTimeObservables_) {
+            obs.fourierTransform(lat, rank_);
+        }
+        for (auto& obs : unequalTimeObservables_) {
             obs.fourierTransform(lat, rank_);
         }
         MPI_Barrier(comm_);
@@ -577,6 +977,9 @@ public:
         for (auto& obs : equalTimeObservables_) {
             obs.jackknife(rank_);
         }
+        for (auto& obs : unequalTimeObservables_) {
+            obs.jackknife(rank_);
+        }
         MPI_Barrier(comm_);
     }
 };
@@ -586,6 +989,7 @@ namespace Observables {
     double calculate_doubleOccupancy(const std::vector<GF>& greens, const Lattice& lat);
     double calculate_swavePairing(const std::vector<GF>& greens, const Lattice& lat);
     arma::mat calculate_densityCorr(const std::vector<GF>& greens, const Lattice& lat);
+    std::vector<Matrix> calculate_greenTau(const std::vector<GF>& greens, const Lattice& lat);
 }
 
 #endif
