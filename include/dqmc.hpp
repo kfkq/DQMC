@@ -21,11 +21,10 @@ using Vector = arma::vec;
 using GreenFunc = arma::mat; // in general should be complex, but current attractive hubbard only need real valued matrix.
 
 struct GF {
-    GreenFunc Gtt;  // G(τ,τ)
-    //std::vector<GreenFunc> Gt0;  // G(τ,0)
-    //std::vector<GreenFunc> G0t;  // G(0,τ)
-    GreenFunc Gt0;
-    GreenFunc G0t;
+    GreenFunc G00;  // G(τ,τ)
+    std::vector<GreenFunc> Gtt;
+    std::vector<GreenFunc> Gt0;  // G(τ,0)
+    std::vector<GreenFunc> G0t;  // G(0,τ)
 };
 
 class DQMC {

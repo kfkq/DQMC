@@ -68,13 +68,11 @@ namespace model {
 
         Matrix K(ns_,ns_);
         for (int i = 0; i < ns_; i++) {
-            auto nbrx = lat.site_neighbors(i, {1, 0});
-            int ix = nbrx[0];
+            int ix = lat.site_neighbors(i, {1, 0}, 0);
             K(i, ix) = -t_;
             K(ix, i) = -t_;
 
-            auto nbry = lat.site_neighbors(i, {0, 1});
-            int iy = nbry[0];
+            int iy = lat.site_neighbors(i, {0, 1}, 0);
             K(i, iy) = -t_;
             K(iy, i) = -t_;
             
@@ -189,12 +187,12 @@ namespace model {
     / Functions for MC sweeping and updates
     --------------------------------------------------------------------------------------------- */
 
-    double HubbardAttractiveU::acceptance_ratio(GreenFunc& Gtt, double delta, int i) {
+    double HubbardAttractiveU::acceptance_ratio(GreenFunc& G00, double delta, int i) {
         /*
         / calculate the probability weight if fields updated
         /   Rσ = 1 + (1 - G_{ii})(exp(-2 * α * s(l, i)) - 1)
         */
-        return 1.0 + (1.0 - Gtt(i, i)) * delta; 
+        return 1.0 + (1.0 - G00(i, i)) * delta; 
     }
 
     void HubbardAttractiveU::update_fields(int l, int i) {
@@ -204,17 +202,17 @@ namespace model {
         fields_(l, i) = - fields_(l, i);
     }
 
-    void HubbardAttractiveU::update_greens(GreenFunc& gtt, double delta, int i) {
+    void HubbardAttractiveU::update_greens(GreenFunc& g00, double delta, int i) {
         /*
         / update green's function locally
         /   G'_{jk} = G_{jk} - Δ/Rσ * G_{ji} * (δ_{ik} - G_{ik})
         */
-        double prefactor = delta / (1.0 + (1.0 - gtt(i, i)) * delta);
-        arma::vec    U = gtt.col(i);
-        arma::rowvec V = gtt.row(i);
+        double prefactor = delta / (1.0 + (1.0 - g00(i, i)) * delta);
+        arma::vec    U = g00.col(i);
+        arma::rowvec V = g00.row(i);
         V(i) = V(i) - 1.0;
 
-        gtt += prefactor * U * V;
+        g00 += prefactor * U * V;
     }
 
     double HubbardAttractiveU::update_time_slice(std::vector<GF>& greens, int l) {
@@ -237,7 +235,7 @@ namespace model {
             double delta = std::exp(-2.0 * alpha_ * fields_(l, i)) - 1.0;
             
             // calculate acceptance ratio at (l, i)
-            double fermionic_ratio = acceptance_ratio(greens[0].Gtt, delta, i);
+            double fermionic_ratio = acceptance_ratio(greens[0].G00, delta, i);
             double bosonic_ratio   = 1.0 / (delta + 1.0); // non zero, since HS decomposition gives (n_up + n_dn - 1)^2
             double acc_ratio       = bosonic_ratio * std::pow(fermionic_ratio, 2);
 
@@ -245,7 +243,7 @@ namespace model {
             double metropolis_p = std::min(1.0, std::abs(acc_ratio));
             if (utility::random::bernoulli(metropolis_p)) {
                 accepted_ns += 1;
-                update_greens(greens[0].Gtt, delta, i);
+                update_greens(greens[0].G00, delta, i);
                 update_fields(l, i);
             }
         }

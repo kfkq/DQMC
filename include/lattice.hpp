@@ -97,15 +97,13 @@ public:
         return {pj[0] - pi[0], pj[1] - pi[1]};
     }
 
-    std::vector<int> site_neighbors(int idx, std::array<int,2> delta) const {
+    int site_neighbors(int idx, std::array<int,2> delta, int orb) const {
         const int cell = idx / n_orb_;
         const int ux = cell % Lx_;
         const int uy = cell / Lx_;
         int tx = ((ux+delta[0])%Lx_+Lx_)%Lx_;
         int ty = ((uy+delta[1])%Ly_+Ly_)%Ly_;
-        std::vector<int> res(n_orb_);
-        for (int o=0; o<n_orb_; ++o) res[o] = (ty*Lx_+tx)*n_orb_+o;
-        return res;
+        return (ty*Lx_+tx)*n_orb_+orb;
     }
 };
 
