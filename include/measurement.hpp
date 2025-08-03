@@ -25,6 +25,24 @@ struct DataRow {
 };
 
 namespace io {
+    // --- Private Helper for Writing Text Files ---
+    // A generic writer that takes a header-writing lambda and a row-writing lambda.
+    template<typename HeaderFunc, typename RowFunc>
+    static void write_stats_file(const std::string& filename,
+                                 const std::vector<DataRow>& results,
+                                 HeaderFunc write_header,
+                                 RowFunc write_row) {
+        std::ofstream out(filename);
+        if (!out) {
+            throw std::runtime_error("Could not open file for writing stats: " + filename);
+        }
+        out << std::fixed << std::setprecision(12);
+        write_header(out); // Call the lambda to write the specific header
+        for (const auto& res : results) {
+            write_row(out, res); // Call the lambda to write the specific row format
+        }
+    }
+
     // Append a single DataRow to a binary file.
     inline void save_bin_data(const std::string& filename, const DataRow& row) {
         std::ofstream out(filename, std::ios::binary | std::ios::app);
@@ -32,6 +50,16 @@ namespace io {
             throw std::runtime_error("Could not open file for binary writing: " + filename);
         }
         out.write(reinterpret_cast<const char*>(&row), sizeof(DataRow));
+    }
+
+    // Overload to append a vector of DataRows to a binary file.
+    inline void save_bin_data(const std::string& filename, const std::vector<DataRow>& data) {
+        if (data.empty()) return;
+        std::ofstream out(filename, std::ios::binary | std::ios::app);
+        if (!out) {
+            throw std::runtime_error("Could not open file for binary writing: " + filename);
+        }
+        out.write(reinterpret_cast<const char*>(data.data()), data.size() * sizeof(DataRow));
     }
 
     // Load an entire binary file of DataRows.
@@ -67,100 +95,74 @@ namespace io {
             << std::setw(20) << error << '\n';
     }
 
-    // Overload to append a vector of DataRows to a binary file.
-    inline void save_bin_data(const std::string& filename, const std::vector<DataRow>& data) {
-        if (data.empty()) return;
-        std::ofstream out(filename, std::ios::binary | std::ios::app);
-        if (!out) {
-            throw std::runtime_error("Could not open file for binary writing: " + filename);
-        }
-        out.write(reinterpret_cast<const char*>(data.data()), data.size() * sizeof(DataRow));
-    }
-
     // Save final real-space statistics to a text file.
     inline void save_real_stats(const std::string& filename, const std::vector<DataRow>& results) {
-        std::ofstream out(filename);
-        if (!out) {
-            throw std::runtime_error("Could not open file for writing stats: " + filename);
-        }
-        out << std::fixed << std::setprecision(12)
-            << std::setw(20) << "dx"
-            << std::setw(20) << "dy"
-            << std::setw(4)  << "a"
-            << std::setw(4)  << "b"
-            << std::setw(20) << "mean"
-            << std::setw(20) << "error\n";
-        for (const auto& res : results) {
-            out << std::setw(20) << res.coord1
-                << std::setw(20) << res.coord2
-                << std::setw(4)  << res.a
-                << std::setw(4)  << res.b
-                << std::setw(20) << res.re_mean
-                << std::setw(20) << res.re_error << '\n';
-        }
+        write_stats_file(filename, results,
+            // Header-writing lambda
+            [](std::ostream& os) {
+                os << std::setw(20) << "dx" << std::setw(20) << "dy"
+                   << std::setw(4)  << "a"  << std::setw(4)  << "b"
+                   << std::setw(20) << "mean" << std::setw(20) << "error\n";
+            },
+            // Row-writing lambda
+            [](std::ostream& os, const DataRow& res) {
+                os << std::setw(20) << res.coord1 << std::setw(20) << res.coord2
+                   << std::setw(4)  << res.a << std::setw(4)  << res.b
+                   << std::setw(20) << res.re_mean << std::setw(20) << res.re_error << '\n';
+            }
+        );
     }
 
     // Save final k-space statistics to a text file.
     inline void save_complex_stats(const std::string& filename, const std::vector<DataRow>& results) {
-        std::ofstream out(filename);
-        if (!out) {
-            throw std::runtime_error("Could not open file for writing stats: " + filename);
-        }
-        out << std::fixed << std::setprecision(12)
-            << std::setw(20) << "kx" << std::setw(20) << "ky"
-            << std::setw(4)  << "a"  << std::setw(4)  << "b"
-            << std::setw(20) << "re_mean" << std::setw(20) << "re_error"
-            << std::setw(20) << "im_mean" << std::setw(20) << "im_error\n";
-        for (const auto& res : results) {
-            out << std::setw(20) << res.coord1 << std::setw(20) << res.coord2
-                << std::setw(4)  << res.a << std::setw(4)  << res.b
-                << std::setw(20) << res.re_mean << std::setw(20) << res.re_error
-                << std::setw(20) << res.im_mean << std::setw(20) << res.im_error << '\n';
-        }
+        write_stats_file(filename, results,
+            [](std::ostream& os) {
+                os << std::setw(20) << "kx" << std::setw(20) << "ky"
+                   << std::setw(4)  << "a"  << std::setw(4)  << "b"
+                   << std::setw(20) << "re_mean" << std::setw(20) << "re_error"
+                   << std::setw(20) << "im_mean" << std::setw(20) << "im_error\n";
+            },
+            [](std::ostream& os, const DataRow& res) {
+                os << std::setw(20) << res.coord1 << std::setw(20) << res.coord2
+                   << std::setw(4)  << res.a << std::setw(4)  << res.b
+                   << std::setw(20) << res.re_mean << std::setw(20) << res.re_error
+                   << std::setw(20) << res.im_mean << std::setw(20) << res.im_error << '\n';
+            }
+        );
     }
 
     // Save final real-space statistics for unequal-time data to a text file.
     inline void save_real_tau_stats(const std::string& filename, const std::vector<DataRow>& results) {
-        std::ofstream out(filename);
-        if (!out) {
-            throw std::runtime_error("Could not open file for writing stats: " + filename);
-        }
-        out << std::fixed << std::setprecision(12)
-            << std::setw(8)  << "tau"
-            << std::setw(20) << "dx"
-            << std::setw(20) << "dy"
-            << std::setw(4)  << "a"
-            << std::setw(4)  << "b"
-            << std::setw(20) << "mean"
-            << std::setw(20) << "error\n";
-        for (const auto& res : results) {
-            out << std::setw(8)  << res.tau
-                << std::setw(20) << res.coord1
-                << std::setw(20) << res.coord2
-                << std::setw(4)  << res.a
-                << std::setw(4)  << res.b
-                << std::setw(20) << res.re_mean
-                << std::setw(20) << res.re_error << '\n';
-        }
+        write_stats_file(filename, results,
+            [](std::ostream& os) {
+                os << std::setw(8)  << "tau" << std::setw(20) << "dx" << std::setw(20) << "dy"
+                   << std::setw(4)  << "a"   << std::setw(4)  << "b"
+                   << std::setw(20) << "mean" << std::setw(20) << "error\n";
+            },
+            [](std::ostream& os, const DataRow& res) {
+                os << std::setw(8)  << res.tau << std::setw(20) << res.coord1 << std::setw(20) << res.coord2
+                   << std::setw(4)  << res.a << std::setw(4)  << res.b
+                   << std::setw(20) << res.re_mean << std::setw(20) << res.re_error << '\n';
+            }
+        );
     }
 
     // Save final k-space statistics for unequal-time data to a text file.
     inline void save_complex_tau_stats(const std::string& filename, const std::vector<DataRow>& results) {
-        std::ofstream out(filename);
-        if (!out) {
-            throw std::runtime_error("Could not open file for writing stats: " + filename);
-        }
-        out << std::fixed << std::setprecision(12)
-            << std::setw(8)  << "tau" << std::setw(20) << "kx" << std::setw(20) << "ky"
-            << std::setw(4)  << "a"   << std::setw(4)  << "b"
-            << std::setw(20) << "re_mean" << std::setw(20) << "re_error"
-            << std::setw(20) << "im_mean" << std::setw(20) << "im_error\n";
-        for (const auto& res : results) {
-            out << std::setw(8) << res.tau << std::setw(20) << res.coord1 << std::setw(20) << res.coord2
-                << std::setw(4) << res.a << std::setw(4) << res.b
-                << std::setw(20) << res.re_mean << std::setw(20) << res.re_error
-                << std::setw(20) << res.im_mean << std::setw(20) << res.im_error << '\n';
-        }
+        write_stats_file(filename, results,
+            [](std::ostream& os) {
+                os << std::setw(8)  << "tau" << std::setw(20) << "kx" << std::setw(20) << "ky"
+                   << std::setw(4)  << "a"   << std::setw(4)  << "b"
+                   << std::setw(20) << "re_mean" << std::setw(20) << "re_error"
+                   << std::setw(20) << "im_mean" << std::setw(20) << "im_error\n";
+            },
+            [](std::ostream& os, const DataRow& res) {
+                os << std::setw(8) << res.tau << std::setw(20) << res.coord1 << std::setw(20) << res.coord2
+                   << std::setw(4) << res.a << std::setw(4) << res.b
+                   << std::setw(20) << res.re_mean << std::setw(20) << res.re_error
+                   << std::setw(20) << res.im_mean << std::setw(20) << res.im_error << '\n';
+            }
+        );
     }
 } // namespace io
 
@@ -238,39 +240,35 @@ namespace transform {
     }
 
     inline std::vector<DataRow> chi_r_to_chi_k(
-        const arma::field<arma::mat>& chi_r,
-        const Lattice& lat,
-        int tau = 0)
+        const std::vector<DataRow>& chi_r_rows,
+        const Lattice& lat)
     {
         const auto& kpts = lat.k_points();
         const int nk = static_cast<int>(kpts.size());
-        const int n_orb = lat.n_orb();
-        const int Lx = lat.Lx();
-        const int Ly = lat.Ly();
+        const double invN = 1.0 / (lat.Lx() * lat.Ly());
 
         std::vector<DataRow> k_space_data;
-        k_space_data.reserve(nk * n_orb * n_orb);
+        if (chi_r_rows.empty()) return k_space_data;
 
-        const std::array<double,2>& a1 = lat.a1();
-        const std::array<double,2>& a2 = lat.a2();
-        const double invN = 1.0 / (Lx * Ly);
+        // Group real-space data by (tau, a, b) to perform FT on each channel
+        std::map<std::tuple<int, int, int>, std::vector<const DataRow*>> grouped_r_data;
+        for (const auto& row : chi_r_rows) {
+            grouped_r_data[{row.tau, row.a, row.b}].push_back(&row);
+        }
 
         for (int kidx = 0; kidx < nk; ++kidx) {
             const auto& k = kpts[kidx];
-            for (int a = 0; a < n_orb; ++a) {
-                for (int b = 0; b < n_orb; ++b) {
-                    std::complex<double> chi_k_val(0.0, 0.0);
-                    for (int rx = 0; rx < Lx; ++rx) {
-                        for (int ry = 0; ry < Ly; ++ry) {
-                            double x = (rx - Lx/2 + 1) * a1[0] + (ry - Ly/2 + 1) * a2[0];
-                            double y = (rx - Lx/2 + 1) * a1[1] + (ry - Ly/2 + 1) * a2[1];
-                            double phase = k[0]*x + k[1]*y;
-                            chi_k_val += chi_r(a,b)(rx,ry) * std::complex<double>(std::cos(phase), -std::sin(phase));
-                        }
-                    }
-                    chi_k_val *= invN;
-                    k_space_data.emplace_back(DataRow{tau, k[0], k[1], a, b, chi_k_val.real(), 0.0, chi_k_val.imag(), 0.0});
+            for (const auto& [key, rows] : grouped_r_data) {
+                const auto [tau, a, b] = key;
+                std::complex<double> chi_k_val(0.0, 0.0);
+                for (const auto* r_row : rows) {
+                    double x = r_row->coord1;
+                    double y = r_row->coord2;
+                    double phase = k[0]*x + k[1]*y;
+                    chi_k_val += r_row->re_mean * std::complex<double>(std::cos(phase), -std::sin(phase));
                 }
+                chi_k_val *= invN;
+                k_space_data.emplace_back(DataRow{tau, k[0], k[1], a, b, chi_k_val.real(), 0.0, chi_k_val.imag(), 0.0});
             }
         }
         return k_space_data;
@@ -526,23 +524,15 @@ public:
 
         // Process one bin at a time
         for (size_t i = 0; i < num_bins; ++i) {
-            // Reconstruct the chi_r field for this bin
-            arma::field<arma::mat> chi_r(lat.n_orb(), lat.n_orb());
-            for (int a = 0; a < lat.n_orb(); ++a)
-                for (int b = 0; b < lat.n_orb(); ++b)
-                    chi_r(a,b).zeros(lat.Lx(), lat.Ly());
-
+            // Read bin rows into a contiguous vector
+            std::vector<DataRow> chi_r_rows;
+            chi_r_rows.reserve(points_per_bin);
             for (size_t j = 0; j < points_per_bin; ++j) {
-                const auto& row = binned_data_r[i * points_per_bin + j];
-                int ix = static_cast<int>(row.coord1 / lat.a1()[0] + lat.Lx()/2 - 1);
-                int iy = static_cast<int>(row.coord2 / lat.a2()[1] + lat.Ly()/2 - 1);
-                if (ix >= 0 && ix < lat.Lx() && iy >= 0 && iy < lat.Ly()) {
-                    chi_r(row.a, row.b)(ix, iy) = row.re_mean;
-                }
+                chi_r_rows.push_back(binned_data_r[i * points_per_bin + j]);
             }
 
-            // Perform the Fourier Transform for this bin
-            auto k_space_bin_data = transform::chi_r_to_chi_k(chi_r, lat);
+            // Perform the Fourier Transform for this bin using DataRow pipeline
+            auto k_space_bin_data = transform::chi_r_to_chi_k(chi_r_rows, lat);
             all_k_space_data.insert(all_k_space_data.end(), k_space_bin_data.begin(), k_space_bin_data.end());
         }
 
@@ -623,26 +613,18 @@ public:
 
         // Process one bin at a time
         for (size_t i = 0; i < num_bins; ++i) {
-            // Reconstruct the chi_r field for this bin
-            std::map<int, arma::field<arma::mat>> chi_tau_r;
+            // Reconstruct the chi_r field for this bin grouped by tau using DataRow
+            std::map<int, std::vector<DataRow>> chi_tau_rows;
 
             for (size_t j = 0; j < points_per_bin; ++j) {
                 const auto& row = binned_data_r[i * points_per_bin + j];
-                if (chi_tau_r.find(row.tau) == chi_tau_r.end()) {
-                    chi_tau_r[row.tau].set_size(lat.n_orb(), lat.n_orb());
-                    for(int a=0; a<lat.n_orb(); ++a) for(int b=0; b<lat.n_orb(); ++b)
-                        chi_tau_r[row.tau](a,b).zeros(lat.Lx(), lat.Ly());
-                }
-                int ix = static_cast<int>(row.coord1 / lat.a1()[0] + lat.Lx()/2 - 1);
-                int iy = static_cast<int>(row.coord2 / lat.a2()[1] + lat.Ly()/2 - 1);
-                if (ix >= 0 && ix < lat.Lx() && iy >= 0 && iy < lat.Ly()) {
-                    chi_tau_r[row.tau](row.a, row.b)(ix, iy) = row.re_mean;
-                }
+                chi_tau_rows[row.tau].push_back(row);
             }
 
-            // Perform the Fourier Transform for this bin
-            for (const auto& [tau, chi_r] : chi_tau_r) {
-                auto k_space_bin_data = transform::chi_r_to_chi_k(chi_r, lat, tau);
+            // Perform the Fourier Transform for this bin for each tau
+            for (const auto& [tau, rows] : chi_tau_rows) {
+                auto k_space_bin_data = transform::chi_r_to_chi_k(rows, lat);
+                // ensure tau is propagated (already inside rows)
                 all_k_space_data.insert(all_k_space_data.end(), k_space_bin_data.begin(), k_space_bin_data.end());
             }
         }
