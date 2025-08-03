@@ -540,6 +540,15 @@ private:
     std::vector<arma::mat> local_sum_;  // one matrix per tau slice
     int local_count_ = 0;
 
+    // Generalized data structure for unequal-time observables
+    struct DataRow {
+        int tau;
+        double coord1, coord2; // (dx, dy) or (kx, ky)
+        int a, b;
+        double re_mean, re_error;
+        double im_mean, im_error; // For real data, im_* fields are 0
+    };
+
 public:
     unequalTimeObservable(const std::string& filename, int rank)
         : filename_(filename) {
@@ -585,10 +594,37 @@ public:
 
         static int bin_counter = 0;
         if (rank == 0) {
+            // --- 1. Data Collection ---
+            std::vector<DataRow> data;
+            const int n_orb = lat.n_orb();
+            const int Lx = lat.Lx();
+            const int Ly = lat.Ly();
+            data.reserve(n_tau_ * Lx * Ly * n_orb * n_orb);
+
+            const std::array<double,2>& a1 = lat.a1();
+            const std::array<double,2>& a2 = lat.a2();
+
+            for (int tau = 0; tau < n_tau_; ++tau) {
+                arma::field<arma::mat> chi_r = transform::chi_site_to_chi_r(
+                    global_sum[tau] / global_count, lat);
+
+                for (int rx = 0; rx < Lx; ++rx) {
+                    for (int ry = 0; ry < Ly; ++ry) {
+                        double dx = (rx - Lx/2 + 1) * a1[0] + (ry - Ly/2 + 1) * a2[0];
+                        double dy = (rx - Lx/2 + 1) * a1[1] + (ry - Ly/2 + 1) * a2[1];
+                        for (int a = 0; a < n_orb; ++a) {
+                            for (int b = 0; b < n_orb; ++b) {
+                                data.emplace_back(DataRow{tau, dx, dy, a, b, chi_r(a,b)(rx,ry), 0.0, 0.0, 0.0});
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- 2. File Writing ---
             char fname[256];
             std::snprintf(fname, sizeof(fname),
                           "results/%s/binR_%04d.dat", filename_.c_str(), bin_counter++);
-
             std::ofstream out(fname);
             out << std::fixed << std::setprecision(12)
                 << std::setw(8)  << "tau"
@@ -598,35 +634,13 @@ public:
                 << std::setw(4)  << "b"
                 << std::setw(20) << "value" << '\n';
 
-            const int n_orb = lat.n_orb();
-            const int Lx = lat.Lx();
-            const int Ly = lat.Ly();
-            const std::array<double,2>& a1 = lat.a1();
-            const std::array<double,2>& a2 = lat.a2();
-
-            for (int tau = 0; tau < n_tau_; ++tau) {
-                // Convert site matrix to real-space field for this tau
-                arma::field<arma::mat> chi_r = transform::chi_site_to_chi_r(
-                    global_sum[tau] / global_count, lat);
-
-                for (int rx = 0; rx < Lx; ++rx) {
-                    for (int ry = 0; ry < Ly; ++ry) {
-                        for (int a = 0; a < n_orb; ++a) {
-                            for (int b = 0; b < n_orb; ++b) {
-                                double dx = (rx - Lx/2 + 1) * a1[0] + (ry - Ly/2 + 1) * a2[0];
-                                double dy = (rx - Lx/2 + 1) * a1[1] + (ry - Ly/2 + 1) * a2[1];
-                                
-                                out << std::setw(8)  << tau
-                                    << std::setw(20) << dx
-                                    << std::setw(20) << dy
-                                    << std::setw(4)  << a
-                                    << std::setw(4)  << b
-                                    << std::setw(20) << std::setprecision(12)
-                                    << chi_r(a,b)(rx,ry) << '\n';
-                            }
-                        }
-                    }
-                }
+            for (const auto& row : data) {
+                out << std::setw(8)  << row.tau
+                    << std::setw(20) << row.coord1
+                    << std::setw(20) << row.coord2
+                    << std::setw(4)  << row.a
+                    << std::setw(4)  << row.b
+                    << std::setw(20) << row.re_mean << '\n';
             }
         }
 
@@ -680,7 +694,34 @@ public:
             }
             rin.close();
 
-            // Write k-space bin file
+            // --- 2. Perform Fourier Transform and Collect Data ---
+            std::vector<DataRow> k_space_data;
+            const std::array<double,2>& a1 = lat.a1();
+            const std::array<double,2>& a2 = lat.a2();
+            const double invN = 1.0 / (lat.Lx() * lat.Ly());
+
+            for (const auto& [tau, chi_r] : chi_tau_r) {
+                for (int kidx = 0; kidx < nk; ++kidx) {
+                    const auto& k = kpts[kidx];
+                    for (int a = 0; a < n_orb; ++a) {
+                        for (int b = 0; b < n_orb; ++b) {
+                            std::complex<double> sum(0.0, 0.0);
+                            for (int rx = 0; rx < lat.Lx(); ++rx) {
+                                for (int ry = 0; ry < lat.Ly(); ++ry) {
+                                    double x = (rx - lat.Lx()/2 + 1) * a1[0] + (ry - lat.Ly()/2 + 1) * a2[0];
+                                    double y = (rx - lat.Lx()/2 + 1) * a1[1] + (ry - lat.Ly()/2 + 1) * a2[1];
+                                    double phase = k[0]*x + k[1]*y;
+                                    sum += chi_r(a,b)(rx,ry) * std::complex<double>(std::cos(phase), -std::sin(phase));
+                                }
+                            }
+                            sum *= invN;
+                            k_space_data.emplace_back(DataRow{tau, k[0], k[1], a, b, sum.real(), 0.0, sum.imag(), 0.0});
+                        }
+                    }
+                }
+            }
+
+            // --- 3. Write K-Space Bin File ---
             char kname[256];
             std::snprintf(kname, sizeof(kname),
                           "results/%s/binK_%04d.dat", filename_.c_str(), bin_idx);
@@ -691,44 +732,17 @@ public:
                  << std::setw(20) << "ky"
                  << std::setw(4)  << "a"
                  << std::setw(4)  << "b"
-                 << std::setw(20) << "re"
-                 << std::setw(20) << "im\n";
+                 << std::setw(20) << "re_mean"
+                 << std::setw(20) << "im_mean\n";
 
-            const std::array<double,2>& a1 = lat.a1();
-            const std::array<double,2>& a2 = lat.a2();
-
-            // FFT for each tau slice
-            for (const auto& [tau, chi_r] : chi_tau_r) {
-                for (int kidx = 0; kidx < nk; ++kidx) {
-                    const auto& k = kpts[kidx];
-                    for (int a = 0; a < n_orb; ++a) {
-                        for (int b = 0; b < n_orb; ++b) {
-                            std::complex<double> sum(0.0, 0.0);
-                            for (int rx = 0; rx < lat.Lx(); ++rx) {
-                                for (int ry = 0; ry < lat.Ly(); ++ry) {
-                                    double x = (rx - lat.Lx()/2 + 1) * a1[0]
-                                             + (ry - lat.Ly()/2 + 1) * a2[0];
-                                    double y = (rx - lat.Lx()/2 + 1) * a1[1]
-                                             + (ry - lat.Ly()/2 + 1) * a2[1];
-                                    double phase = k[0]*x + k[1]*y;
-                                    sum += chi_r(a,b)(rx,ry) *
-                                           std::complex<double>(std::cos(phase),
-                                                                -std::sin(phase));
-                                }
-                            }
-                            // Normalize by number of real-space lattice points
-                            sum /= (lat.Lx() * lat.Ly());
-                            
-                            kout << std::setw(8)  << tau
-                                 << std::setw(20) << k[0]
-                                 << std::setw(20) << k[1]
-                                 << std::setw(4)  << a
-                                 << std::setw(4)  << b
-                                 << std::setw(20) << std::real(sum)
-                                 << std::setw(20) << std::imag(sum) << '\n';
-                        }
-                    }
-                }
+            for (const auto& row : k_space_data) {
+                kout << std::setw(8)  << row.tau
+                     << std::setw(20) << row.coord1
+                     << std::setw(20) << row.coord2
+                     << std::setw(4)  << row.a
+                     << std::setw(4)  << row.b
+                     << std::setw(20) << row.re_mean
+                     << std::setw(20) << row.im_mean << '\n';
             }
             ++bin_idx;
         }
@@ -779,7 +793,21 @@ public:
             }
         }
 
+        // --- Part 1: Real-space Jackknife ---
         if (!dataR.empty()) {
+            // Calculate statistics
+            std::vector<DataRow> resultsR;
+            resultsR.reserve(dataR.size());
+            for (const auto& [key, vals] : dataR) {
+                if (vals.size() < 2) continue;
+                const auto [means, errs] = statistics::jackknife(vals);
+                const double mMean = statistics::mean(means);
+                const double mError = statistics::mean(errs);
+                const auto [tau,dx,dy,a,b] = key;
+                resultsR.emplace_back(DataRow{tau, dx, dy, a, b, mMean, mError, 0.0, 0.0});
+            }
+
+            // Write to file
             char outnameR[256];
             std::snprintf(outnameR, sizeof(outnameR),
                           "results/%s/statR.dat", filename_.c_str());
@@ -793,24 +821,29 @@ public:
                  << std::setw(20) << "mean"
                  << std::setw(20) << "error\n";
 
-            for (const auto& [key, vals] : dataR) {
-                if (vals.size() < 2) continue;
-                const auto [means, errs] = statistics::jackknife(vals);
-                const double mMean = statistics::mean(means);
-                const double mError = statistics::mean(errs);
-                const auto [tau,dx,dy,a,b] = key;
-                outR << std::setw(8)  << tau
-                     << std::setw(20) << dx
-                     << std::setw(20) << dy
-                     << std::setw(4)  << a
-                     << std::setw(4)  << b
-                     << std::setw(20) << mMean
-                     << std::setw(20) << mError << '\n';
+            for (const auto& res : resultsR) {
+                outR << std::setw(8)  << res.tau
+                     << std::setw(20) << res.coord1
+                     << std::setw(20) << res.coord2
+                     << std::setw(4)  << res.a
+                     << std::setw(4)  << res.b
+                     << std::setw(20) << res.re_mean
+                     << std::setw(20) << res.re_error << '\n';
             }
         }
 
-        // R0 jackknife analysis
+        // --- Part 2: R0 Jackknife (Sum over orbitals at r=0) ---
         if (!dataR0.empty()) {
+            // Calculate statistics
+            struct StatResultR0 { int tau; double mean, error; };
+            std::vector<StatResultR0> resultsR0;
+            for (const auto& [tau, vals] : dataR0) {
+                if (vals.size() < 2) continue;
+                const auto [means, errs] = statistics::jackknife(vals);
+                resultsR0.emplace_back(StatResultR0{tau, statistics::mean(means), statistics::mean(errs)});
+            }
+
+            // Write to file
             char outnameR0[256];
             std::snprintf(outnameR0, sizeof(outnameR0),
                           "results/%s/statR0.dat", filename_.c_str());
@@ -820,18 +853,14 @@ public:
                   << std::setw(20) << "mean"
                   << std::setw(20) << "error\n";
 
-            for (const auto& [tau, vals] : dataR0) {
-                if (vals.size() < 2) continue;
-                const auto [means, errs] = statistics::jackknife(vals);
-                const double mMean = statistics::mean(means);
-                const double mError = statistics::mean(errs);
-                outR0 << std::setw(8)  << tau
-                      << std::setw(20) << mMean
-                      << std::setw(20) << mError << '\n';
+            for (const auto& res : resultsR0) {
+                outR0 << std::setw(8)  << res.tau
+                      << std::setw(20) << res.mean
+                      << std::setw(20) << res.error << '\n';
             }
         }
 
-        // k-space jackknife analysis
+        // --- Part 3: K-space Jackknife ---
         std::vector<std::string> binsK;
         for (int idx = 0; ; ++idx) {
             char fname[256];
@@ -858,6 +887,26 @@ public:
         }
 
         if (!dataK.empty()) {
+            // Calculate statistics
+            std::vector<DataRow> resultsK;
+            resultsK.reserve(dataK.size());
+            for (const auto& [key, vecs] : dataK) {
+                const auto& [re_vals, im_vals] = vecs;
+                if (re_vals.size() < 2) continue;
+
+                const auto [re_means, re_errs] = statistics::jackknife(re_vals);
+                const auto [im_means, im_errs] = statistics::jackknife(im_vals);
+
+                const double reMean = statistics::mean(re_means);
+                const double reError = statistics::mean(re_errs);
+                const double imMean = statistics::mean(im_means);
+                const double imError = statistics::mean(im_errs);
+
+                const auto [tau,kx,ky,a,b] = key;
+                resultsK.emplace_back(DataRow{tau, kx, ky, a, b, reMean, reError, imMean, imError});
+            }
+
+            // Write to file
             char outnameK[256];
             std::snprintf(outnameK, sizeof(outnameK),
                           "results/%s/statK.dat", filename_.c_str());
@@ -873,28 +922,16 @@ public:
                  << std::setw(20) << "im_mean"
                  << std::setw(20) << "im_error\n";
 
-            for (const auto& [key, vecs] : dataK) {
-                const auto& [re_vals, im_vals] = vecs;
-                if (re_vals.size() < 2) continue;
-
-                const auto [re_means, re_errs] = statistics::jackknife(re_vals);
-                const auto [im_means, im_errs] = statistics::jackknife(im_vals);
-
-                const double reMean = statistics::mean(re_means);
-                const double reError = statistics::mean(re_errs);
-                const double imMean = statistics::mean(im_means);
-                const double imError = statistics::mean(im_errs);
-
-                const auto [tau,kx,ky,a,b] = key;
-                outK << std::setw(8)  << tau
-                     << std::setw(20) << kx
-                     << std::setw(20) << ky
-                     << std::setw(4)  << a
-                     << std::setw(4)  << b
-                     << std::setw(20) << reMean
-                     << std::setw(20) << reError
-                     << std::setw(20) << imMean
-                     << std::setw(20) << imError << '\n';
+            for (const auto& res : resultsK) {
+                outK << std::setw(8)  << res.tau
+                     << std::setw(20) << res.coord1
+                     << std::setw(20) << res.coord2
+                     << std::setw(4)  << res.a
+                     << std::setw(4)  << res.b
+                     << std::setw(20) << res.re_mean
+                     << std::setw(20) << res.re_error
+                     << std::setw(20) << res.im_mean
+                     << std::setw(20) << res.im_error << '\n';
             }
         }
     }
