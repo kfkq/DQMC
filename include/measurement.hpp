@@ -36,51 +36,65 @@ namespace transform {
     //  dx,dy range: (-Lx/2+1 … Lx/2)  and  (-Ly/2+1 … Lx/2)                        
     // ------------------------------------------------------------------           
     inline
-    arma::field<arma::mat>
-    chi_site_to_chi_r(const arma::mat& chi_site,                                    
-                    const Lattice&   lat) {                                       
+    std::vector<DataRow>
+    chi_site_to_chi_r(const arma::cube& chi_site, const Lattice& lat) {
         const int n_orb = lat.n_orb();                         
         const int Lx = lat.Lx();                                                    
         const int Ly = lat.Ly();
         const int n_cells = lat.size();                                            
-                                                                                    
-        arma::field<arma::mat> chi_r(n_orb, n_orb);                                 
-        for (int a = 0; a < n_orb; ++a) {                                          
-            for (int b = 0; b < n_orb; ++b) {                                         
-                chi_r(a,b).zeros(Lx, Ly);
+        const int n_tau = chi_site.n_slices;
+
+        // Use a map to accumulate values for each unique (tau, dx, dy, a, b) tuple
+        std::map<std::tuple<int, int, int, int, int>, double> accumulator;
+
+        for (int tau = 0; tau < n_tau; ++tau) {
+            // Get a view of the current tau-slice
+            arma::mat chi_slice = chi_site.slice(tau);
+
+            for (int ij = 0; ij < static_cast<int>(chi_slice.n_elem); ++ij) {
+                const int i = ij % chi_slice.n_rows;
+                const int j = ij / chi_slice.n_rows;
+                const double val = chi_slice(i,j);
+                const int a = i % n_orb;
+                const int b = j % n_orb;
+                const int cell_i = i / n_orb;
+                const int cell_j = j / n_orb;
+                const int cxi = cell_i % Lx;
+                const int cyi = cell_i / Lx;
+                const int cxj = cell_j % Lx;
+                const int cyj = cell_j / Lx;
+
+                int raw_dx = cxj - cxi;
+                int dx_pbc = transform::pbc_shortest(raw_dx, Lx);
+                int raw_dy = cyj - cyi;
+                int dy_pbc = transform::pbc_shortest(raw_dy, Ly);
+
+                int dx_idx = dx_pbc + Lx/2 - 1;
+                int dy_idx = dy_pbc + Ly/2 - 1;
+                accumulator[{tau, dx_idx, dy_idx, a, b}] += val;
             }
         }
 
-        for (int ij = 0; ij < static_cast<int>(chi_site.n_elem); ++ij) {
-            const int i = ij % chi_site.n_rows;
-            const int j = ij / chi_site.n_rows;
-            const double val = chi_site(i,j);
-
-            const int a = i % n_orb;
-            const int b = j % n_orb;
-
-            const int cell_i = i / n_orb;
-            const int cell_j = j / n_orb;
-
-            const int cxi = cell_i % Lx;
-            const int cyi = cell_i / Lx;
-            const int cxj = cell_j % Lx;
-            const int cyj = cell_j / Lx;
-
-            // shortest relative distance under PBC
-            int raw_dx = cxj - cxi;
-            int dx     = transform::pbc_shortest(raw_dx, Lx);
-            int raw_dy = cyj - cyi;
-            int dy     = transform::pbc_shortest(raw_dy, Ly);
-
-            // map into [0,Lx-1] and [0,Ly-1] for storage
-            dx = dx + Lx/2 - 1;
-            dy = dy + Ly/2 - 1;
-
-            chi_r(a,b)(dx, dy) += val / n_cells;
+        // Convert the accumulated map to a vector of DataRow
+        std::vector<DataRow> data_rows;
+        data_rows.reserve(accumulator.size());
+        const auto& a1 = lat.a1();
+        const auto& a2 = lat.a2();
+        for (const auto& [key, accumulated_val] : accumulator) {
+            const auto [tau, dx_idx, dy_idx, a, b] = key;
+            double dx_phys = (dx_idx - (Lx/2 - 1)) * a1[0] + (dy_idx - (Ly/2 - 1)) * a2[0];
+            double dy_phys = (dx_idx - (Lx/2 - 1)) * a1[1] + (dy_idx - (Ly/2 - 1)) * a2[1];
+            data_rows.emplace_back(DataRow{tau, dx_phys, dy_phys, a, b, accumulated_val / n_cells, 0.0, 0.0, 0.0});
         }
+        return data_rows;
+    }
 
-        return chi_r;                                                               
+    // Overload for equal-time case (arma::mat)
+    inline std::vector<DataRow> chi_site_to_chi_r(const arma::mat& chi_site, const Lattice& lat) {
+        // Wrap the matrix in a 1-slice cube and call the main implementation
+        arma::cube temp_cube(chi_site.n_rows, chi_site.n_cols, 1);
+        temp_cube.slice(0) = chi_site;
+        return chi_site_to_chi_r(temp_cube, lat);
     }
 
     inline std::vector<DataRow> chi_r_to_chi_k(
@@ -271,33 +285,13 @@ public:
                       n_sites * n_sites, MPI_DOUBLE, MPI_SUM, comm);
         MPI_Allreduce(&local_count_, &global_count, 1, MPI_INT, MPI_SUM, comm);
 
-        // convert site matrix → real-space field
-        arma::field<arma::mat> chi_r = transform::chi_site_to_chi_r(global_sum / global_count, lat);
-
         static int bin_counter = 0;
         if (rank == 0) {
             // --- 1. Data Collection ---
-            const int n_orb = chi_r.n_rows;
-            const int Lx    = chi_r(0,0).n_rows;
-            const int Ly    = chi_r(0,0).n_cols;
-            const std::array<double,2>& a1 = lat.a1();
-            const std::array<double,2>& a2 = lat.a2();
-
-            std::vector<DataRow> data;
-            data.reserve(Lx * Ly * n_orb * n_orb);
-
-            // replace indexing to distance for data writing
-            for (int rx = 0; rx < Lx; ++rx) {
-                for (int ry = 0; ry < Ly; ++ry) {
-                    double dx = (rx - Lx/2 + 1) * a1[0] + (ry - Ly/2 + 1) * a2[0];
-                    double dy = (rx - Lx/2 + 1) * a1[1] + (ry - Ly/2 + 1) * a2[1];
-                    for (int a = 0; a < n_orb; ++a) {
-                        for (int b = 0; b < n_orb; ++b) {
-                            data.emplace_back(DataRow{0, dx, dy, a, b, chi_r(a,b)(rx,ry), 0.0, 0.0, 0.0});
-                        }
-                    }
-                }
-            }
+            // Force evaluation of the expression to resolve overload ambiguity
+            arma::mat chi_site = global_sum / global_count;
+            // Now the call is unambiguous
+            auto data = transform::chi_site_to_chi_r(chi_site, lat);
 
             // --- 2. File Writing ---
             char fname[256];
@@ -547,7 +541,7 @@ private:
     int matrix_size_ = 0;
     int n_tau_ = 0;
 
-    std::vector<arma::mat> local_sum_;  // one matrix per tau slice
+    arma::cube local_sum_;  // (rows, cols, slices) -> (matrix_size, matrix_size, n_tau)
     int local_count_ = 0;
 
 public:
@@ -564,63 +558,33 @@ public:
         if (matrix_size_ == 0) {
             matrix_size_ = tau_matrices[0].n_rows;
             n_tau_ = tau_matrices.size();
-            local_sum_.resize(n_tau_);
-            for (int tau = 0; tau < n_tau_; ++tau) {
-                local_sum_[tau].set_size(matrix_size_, matrix_size_);
-                local_sum_[tau].zeros();
-            }
+            local_sum_.zeros(matrix_size_, matrix_size_, n_tau_);
         }
         
         for (int tau = 0; tau < n_tau_; ++tau) {
-            local_sum_[tau] += tau_matrices[tau];
+            local_sum_.slice(tau) += tau_matrices[tau];
         }
         ++local_count_;
     }
 
     void accumulate(const Lattice& lat, MPI_Comm comm, int rank) {
-        const int n_sites = local_sum_[0].n_rows;
-        std::vector<arma::mat> global_sum(n_tau_);
-        for (int tau = 0; tau < n_tau_; ++tau) {
-            global_sum[tau].set_size(n_sites, n_sites);
-            global_sum[tau].zeros();
-        }
+        const int n_sites = local_sum_.n_rows;
+        arma::cube global_sum(n_sites, n_sites, n_tau_, arma::fill::zeros);
         int global_count = 0;
 
-        // MPI reduction for each tau slice
-        for (int tau = 0; tau < n_tau_; ++tau) {
-            MPI_Allreduce(local_sum_[tau].memptr(), global_sum[tau].memptr(),
-                          n_sites * n_sites, MPI_DOUBLE, MPI_SUM, comm);
-        }
+        // A single MPI call for the entire cube's data
+        const int total_elements = n_sites * n_sites * n_tau_;
+        MPI_Allreduce(local_sum_.memptr(), global_sum.memptr(),
+                      total_elements, MPI_DOUBLE, MPI_SUM, comm);
         MPI_Allreduce(&local_count_, &global_count, 1, MPI_INT, MPI_SUM, comm);
 
         static int bin_counter = 0;
         if (rank == 0) {
             // --- 1. Data Collection ---
-            std::vector<DataRow> data;
-            const int n_orb = lat.n_orb();
-            const int Lx = lat.Lx();
-            const int Ly = lat.Ly();
-            data.reserve(n_tau_ * Lx * Ly * n_orb * n_orb);
-
-            const std::array<double,2>& a1 = lat.a1();
-            const std::array<double,2>& a2 = lat.a2();
-
-            for (int tau = 0; tau < n_tau_; ++tau) {
-                arma::field<arma::mat> chi_r = transform::chi_site_to_chi_r(
-                    global_sum[tau] / global_count, lat);
-
-                for (int rx = 0; rx < Lx; ++rx) {
-                    for (int ry = 0; ry < Ly; ++ry) {
-                        double dx = (rx - Lx/2 + 1) * a1[0] + (ry - Ly/2 + 1) * a2[0];
-                        double dy = (rx - Lx/2 + 1) * a1[1] + (ry - Ly/2 + 1) * a2[1];
-                        for (int a = 0; a < n_orb; ++a) {
-                            for (int b = 0; b < n_orb; ++b) {
-                                data.emplace_back(DataRow{tau, dx, dy, a, b, chi_r(a,b)(rx,ry), 0.0, 0.0, 0.0});
-                            }
-                        }
-                    }
-                }
-            }
+            // Force evaluation of the expression to resolve overload ambiguity
+            arma::cube chi_site = global_sum / global_count;
+            // Now the call is unambiguous
+            auto data = transform::chi_site_to_chi_r(chi_site, lat);
 
             // --- 2. File Writing ---
             char fname[256];
@@ -646,9 +610,7 @@ public:
         }
 
         // Reset accumulators
-        for (int tau = 0; tau < n_tau_; ++tau) {
-            local_sum_[tau].zeros();
-        }
+        local_sum_.zeros();
         local_count_ = 0;
     }
 
