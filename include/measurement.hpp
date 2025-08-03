@@ -24,6 +24,50 @@ struct DataRow {
     double im_mean, im_error; // For real data, im_* fields are 0
 };
 
+namespace io {
+    // Append a single DataRow to a binary file.
+    inline void save_bin_data(const std::string& filename, const DataRow& row) {
+        std::ofstream out(filename, std::ios::binary | std::ios::app);
+        if (!out) {
+            throw std::runtime_error("Could not open file for binary writing: " + filename);
+        }
+        out.write(reinterpret_cast<const char*>(&row), sizeof(DataRow));
+    }
+
+    // Load an entire binary file of DataRows.
+    inline std::vector<DataRow> load_bin_data(const std::string& filename) {
+        std::ifstream in(filename, std::ios::binary);
+        if (!in) {
+            // This is not an error, the file might not exist yet.
+            return {};
+        }
+
+        in.seekg(0, std::ios::end);
+        const std::streampos fileSize = in.tellg();
+        in.seekg(0, std::ios::beg);
+
+        if (fileSize == 0) return {};
+
+        const size_t num_records = fileSize / sizeof(DataRow);
+        std::vector<DataRow> data(num_records);
+        in.read(reinterpret_cast<char*>(data.data()), fileSize);
+        return data;
+    }
+
+    // Save final scalar statistics to a text file.
+    inline void save_scalar_stats(const std::string& filename, double mean, double error) {
+        std::ofstream out(filename);
+        if (!out) {
+            throw std::runtime_error("Could not open file for writing stats: " + filename);
+        }
+        out << std::fixed << std::setprecision(12)
+            << std::setw(20) << "mean"
+            << std::setw(20) << "error\n";
+        out << std::setw(20) << mean
+            << std::setw(20) << error << '\n';
+    }
+} // namespace io
+
 namespace transform {
     inline int pbc_shortest(int d, int L) {                                                                                                                                                                                       
         if (d >  L/2)  d -= L;                                                                                                                                                                                         
@@ -201,12 +245,9 @@ public:
         MPI_Allreduce(&local_count_, &global_count_, 1, MPI_INT, MPI_SUM, comm);
         
         if (rank == 0) {
-            double mean = global_sum_ / global_count_;
-            
-            std::string outname = filename_ + "_bin.dat";                                                                                                                                                              
-            std::ofstream out(outname, std::ios::app); 
-            out << std::fixed << std::setprecision(12)
-                << std::setw(20) << mean << "\n";
+            DataRow row;
+            row.re_mean = (global_count_ > 0) ? (global_sum_ / global_count_) : 0.0;
+            io::save_bin_data(filename_ + ".bins", row);
         }
 
         // reset accumulators
@@ -217,32 +258,22 @@ public:
     void jackknife(int rank) {
         if (rank != 0) return;
 
-        std::string inname = filename_ + "_bin.dat"; 
-        std::ifstream in(inname);
-        if (!in) {
-            std::cerr << "Warning: could not open " << inname << " for jackknife\n";
+        auto binned_data = io::load_bin_data(filename_ + ".bins");
+        if (binned_data.empty()) {
+            std::cerr << "Warning: no data found in " << filename_ << ".bins for jackknife\n";
             return;
         }
 
         std::vector<double> values;
-        std::string line;
-        while (std::getline(in, line)) {
-            if (line.empty() || line[0] == '#') continue;
-            std::istringstream iss(line);
-            double v;
-            if (iss >> v) values.push_back(v);
+        values.reserve(binned_data.size());
+        for (const auto& row : binned_data) {
+            values.push_back(row.re_mean);
         }
-        in.close();
 
         const auto [means, errors] = statistics::jackknife(values);                                                                                                                                                
         const double mMean  = statistics::mean(means);
         const double mError = statistics::mean(errors);
-        
-        std::string outname = filename_ + "_stat.dat";                                                                                                                                                              
-        std::ofstream out(outname);                                                                                                                                                                                
-        out << std::setw(10) << "mean" << std::setw(20) << "error\n";                                                                                                                                              
-        out << std::fixed << std::setprecision(12)                                                                                                                                                                 
-            << std::setw(10) << mMean << std::setw(20) << mError << '\n';
+        io::save_scalar_stats(filename_ + ".stat", mMean, mError);
     }
     
 };
