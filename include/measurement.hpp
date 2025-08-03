@@ -15,6 +15,15 @@
 #include <tuple>
 #include <set>
 
+// Generalized data structure for both equal- and unequal-time observables.
+struct DataRow {
+    int tau;                  // Set to 0 for equal-time cases
+    double coord1, coord2;    // (dx, dy) or (kx, ky)
+    int a, b;
+    double re_mean, re_error;
+    double im_mean, im_error; // For real data, im_* fields are 0
+};
+
 namespace transform {
     inline int pbc_shortest(int d, int L) {                                                                                                                                                                                       
         if (d >  L/2)  d -= L;                                                                                                                                                                                         
@@ -72,6 +81,45 @@ namespace transform {
         }
 
         return chi_r;                                                               
+    }
+
+    inline std::vector<DataRow> chi_r_to_chi_k(
+        const arma::field<arma::mat>& chi_r,
+        const Lattice& lat,
+        int tau = 0)
+    {
+        const auto& kpts = lat.k_points();
+        const int nk = static_cast<int>(kpts.size());
+        const int n_orb = lat.n_orb();
+        const int Lx = lat.Lx();
+        const int Ly = lat.Ly();
+
+        std::vector<DataRow> k_space_data;
+        k_space_data.reserve(nk * n_orb * n_orb);
+
+        const std::array<double,2>& a1 = lat.a1();
+        const std::array<double,2>& a2 = lat.a2();
+        const double invN = 1.0 / (Lx * Ly);
+
+        for (int kidx = 0; kidx < nk; ++kidx) {
+            const auto& k = kpts[kidx];
+            for (int a = 0; a < n_orb; ++a) {
+                for (int b = 0; b < n_orb; ++b) {
+                    std::complex<double> chi_k_val(0.0, 0.0);
+                    for (int rx = 0; rx < Lx; ++rx) {
+                        for (int ry = 0; ry < Ly; ++ry) {
+                            double x = (rx - Lx/2 + 1) * a1[0] + (ry - Ly/2 + 1) * a2[0];
+                            double y = (rx - Lx/2 + 1) * a1[1] + (ry - Ly/2 + 1) * a2[1];
+                            double phase = k[0]*x + k[1]*y;
+                            chi_k_val += chi_r(a,b)(rx,ry) * std::complex<double>(std::cos(phase), -std::sin(phase));
+                        }
+                    }
+                    chi_k_val *= invN;
+                    k_space_data.emplace_back(DataRow{tau, k[0], k[1], a, b, chi_k_val.real(), 0.0, chi_k_val.imag(), 0.0});
+                }
+            }
+        }
+        return k_space_data;
     }
 }
 
@@ -193,14 +241,6 @@ private:
     arma::mat local_sum_;
     int local_count_ = 0;
 
-    // Data structure for storing a single row of real-space correlator data.
-    struct DataRow {
-        double coord1, coord2; // (dx, dy) or (kx, ky)
-        int a, b;
-        double re_mean, re_error;
-        double im_mean, im_error; // For real data, im_* fields are 0
-    };
-
 public:
     equalTimeObservable(const std::string& filename, int rank)
         : filename_(filename){
@@ -253,7 +293,7 @@ public:
                     double dy = (rx - Lx/2 + 1) * a1[1] + (ry - Ly/2 + 1) * a2[1];
                     for (int a = 0; a < n_orb; ++a) {
                         for (int b = 0; b < n_orb; ++b) {
-                            data.emplace_back(DataRow{dx, dy, a, b, chi_r(a,b)(rx,ry), 0.0, 0.0, 0.0});
+                            data.emplace_back(DataRow{0, dx, dy, a, b, chi_r(a,b)(rx,ry), 0.0, 0.0, 0.0});
                         }
                     }
                 }
@@ -326,7 +366,7 @@ public:
                 const double mean_val  = statistics::mean(means);
                 const double error_val = statistics::mean(errs);
                 const auto [dx,dy,a,b] = key;
-                resultsR.emplace_back(DataRow{dx, dy, a, b, mean_val, error_val, 0.0, 0.0});
+                resultsR.emplace_back(DataRow{0, dx, dy, a, b, mean_val, error_val, 0.0, 0.0});
             }
 
             // 3. Write results to file
@@ -399,7 +439,7 @@ public:
                 const double imError = statistics::mean(im_errs);
 
                 const auto [kx,ky,a,b] = key;
-                resultsK.emplace_back(DataRow{kx, ky, a, b, reMean, reError, imMean, imError});
+                resultsK.emplace_back(DataRow{0, kx, ky, a, b, reMean, reError, imMean, imError});
             }
 
             // 3. Write results to file
@@ -472,38 +512,8 @@ public:
             }
             rin.close();
 
-            // --- 2. Perform Fourier Transform and Collect Data ---
-            std::vector<DataRow> k_space_data;
-            k_space_data.reserve(nk * n_orb * n_orb);
-            const std::array<double,2>& a1 = lat.a1();
-            const std::array<double,2>& a2 = lat.a2();
-            const double invN = 1.0 / (lat.Lx() * lat.Ly());
-
-            for (int kidx = 0; kidx < nk; ++kidx) {
-                const auto& k = kpts[kidx];
-                for (int a = 0; a < n_orb; ++a) {
-                    for (int b = 0; b < n_orb; ++b) {
-                        std::complex<double> chi_k(0.0, 0.0);
-                        for (int rx = 0; rx < lat.Lx(); ++rx) {
-                            for (int ry = 0; ry < lat.Ly(); ++ry) {
-                                double x = (rx - lat.Lx()/2 + 1) * a1[0]
-                                         + (ry - lat.Ly()/2 + 1) * a2[0];
-                                double y = (rx - lat.Lx()/2 + 1) * a1[1]
-                                         + (ry - lat.Ly()/2 + 1) * a2[1];
-                                double phase = k[0]*x + k[1]*y;
-                                chi_k += chi_r(a,b)(rx,ry) *
-                                             std::complex<double>(std::cos(phase), -std::sin(phase));
-                            }
-                        }
-                        chi_k *= invN;
-                        k_space_data.emplace_back(DataRow{
-                            k[0], k[1], a, b,
-                            chi_k.real(), 0.0,
-                            chi_k.imag(), 0.0
-                        });
-                    }
-                }
-            }
+            // --- 2. Perform Fourier Transform by calling the shared function ---
+            auto k_space_data = transform::chi_r_to_chi_k(chi_r, lat);
 
             // --- 3. Write K-Space Bin File ---
             char kname[256];
@@ -539,15 +549,6 @@ private:
 
     std::vector<arma::mat> local_sum_;  // one matrix per tau slice
     int local_count_ = 0;
-
-    // Generalized data structure for unequal-time observables
-    struct DataRow {
-        int tau;
-        double coord1, coord2; // (dx, dy) or (kx, ky)
-        int a, b;
-        double re_mean, re_error;
-        double im_mean, im_error; // For real data, im_* fields are 0
-    };
 
 public:
     unequalTimeObservable(const std::string& filename, int rank)
@@ -701,24 +702,10 @@ public:
             const double invN = 1.0 / (lat.Lx() * lat.Ly());
 
             for (const auto& [tau, chi_r] : chi_tau_r) {
-                for (int kidx = 0; kidx < nk; ++kidx) {
-                    const auto& k = kpts[kidx];
-                    for (int a = 0; a < n_orb; ++a) {
-                        for (int b = 0; b < n_orb; ++b) {
-                            std::complex<double> sum(0.0, 0.0);
-                            for (int rx = 0; rx < lat.Lx(); ++rx) {
-                                for (int ry = 0; ry < lat.Ly(); ++ry) {
-                                    double x = (rx - lat.Lx()/2 + 1) * a1[0] + (ry - lat.Ly()/2 + 1) * a2[0];
-                                    double y = (rx - lat.Lx()/2 + 1) * a1[1] + (ry - lat.Ly()/2 + 1) * a2[1];
-                                    double phase = k[0]*x + k[1]*y;
-                                    sum += chi_r(a,b)(rx,ry) * std::complex<double>(std::cos(phase), -std::sin(phase));
-                                }
-                            }
-                            sum *= invN;
-                            k_space_data.emplace_back(DataRow{tau, k[0], k[1], a, b, sum.real(), 0.0, sum.imag(), 0.0});
-                        }
-                    }
-                }
+                // Call the shared function for each tau slice
+                auto single_tau_k_data = transform::chi_r_to_chi_k(chi_r, lat, tau);
+                // Append the results to the main data vector
+                k_space_data.insert(k_space_data.end(), single_tau_k_data.begin(), single_tau_k_data.end());
             }
 
             // --- 3. Write K-Space Bin File ---
