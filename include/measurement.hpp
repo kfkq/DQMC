@@ -66,6 +66,102 @@ namespace io {
         out << std::setw(20) << mean
             << std::setw(20) << error << '\n';
     }
+
+    // Overload to append a vector of DataRows to a binary file.
+    inline void save_bin_data(const std::string& filename, const std::vector<DataRow>& data) {
+        if (data.empty()) return;
+        std::ofstream out(filename, std::ios::binary | std::ios::app);
+        if (!out) {
+            throw std::runtime_error("Could not open file for binary writing: " + filename);
+        }
+        out.write(reinterpret_cast<const char*>(data.data()), data.size() * sizeof(DataRow));
+    }
+
+    // Save final real-space statistics to a text file.
+    inline void save_real_stats(const std::string& filename, const std::vector<DataRow>& results) {
+        std::ofstream out(filename);
+        if (!out) {
+            throw std::runtime_error("Could not open file for writing stats: " + filename);
+        }
+        out << std::fixed << std::setprecision(12)
+            << std::setw(20) << "dx"
+            << std::setw(20) << "dy"
+            << std::setw(4)  << "a"
+            << std::setw(4)  << "b"
+            << std::setw(20) << "mean"
+            << std::setw(20) << "error\n";
+        for (const auto& res : results) {
+            out << std::setw(20) << res.coord1
+                << std::setw(20) << res.coord2
+                << std::setw(4)  << res.a
+                << std::setw(4)  << res.b
+                << std::setw(20) << res.re_mean
+                << std::setw(20) << res.re_error << '\n';
+        }
+    }
+
+    // Save final k-space statistics to a text file.
+    inline void save_complex_stats(const std::string& filename, const std::vector<DataRow>& results) {
+        std::ofstream out(filename);
+        if (!out) {
+            throw std::runtime_error("Could not open file for writing stats: " + filename);
+        }
+        out << std::fixed << std::setprecision(12)
+            << std::setw(20) << "kx" << std::setw(20) << "ky"
+            << std::setw(4)  << "a"  << std::setw(4)  << "b"
+            << std::setw(20) << "re_mean" << std::setw(20) << "re_error"
+            << std::setw(20) << "im_mean" << std::setw(20) << "im_error\n";
+        for (const auto& res : results) {
+            out << std::setw(20) << res.coord1 << std::setw(20) << res.coord2
+                << std::setw(4)  << res.a << std::setw(4)  << res.b
+                << std::setw(20) << res.re_mean << std::setw(20) << res.re_error
+                << std::setw(20) << res.im_mean << std::setw(20) << res.im_error << '\n';
+        }
+    }
+
+    // Save final real-space statistics for unequal-time data to a text file.
+    inline void save_real_tau_stats(const std::string& filename, const std::vector<DataRow>& results) {
+        std::ofstream out(filename);
+        if (!out) {
+            throw std::runtime_error("Could not open file for writing stats: " + filename);
+        }
+        out << std::fixed << std::setprecision(12)
+            << std::setw(8)  << "tau"
+            << std::setw(20) << "dx"
+            << std::setw(20) << "dy"
+            << std::setw(4)  << "a"
+            << std::setw(4)  << "b"
+            << std::setw(20) << "mean"
+            << std::setw(20) << "error\n";
+        for (const auto& res : results) {
+            out << std::setw(8)  << res.tau
+                << std::setw(20) << res.coord1
+                << std::setw(20) << res.coord2
+                << std::setw(4)  << res.a
+                << std::setw(4)  << res.b
+                << std::setw(20) << res.re_mean
+                << std::setw(20) << res.re_error << '\n';
+        }
+    }
+
+    // Save final k-space statistics for unequal-time data to a text file.
+    inline void save_complex_tau_stats(const std::string& filename, const std::vector<DataRow>& results) {
+        std::ofstream out(filename);
+        if (!out) {
+            throw std::runtime_error("Could not open file for writing stats: " + filename);
+        }
+        out << std::fixed << std::setprecision(12)
+            << std::setw(8)  << "tau" << std::setw(20) << "kx" << std::setw(20) << "ky"
+            << std::setw(4)  << "a"   << std::setw(4)  << "b"
+            << std::setw(20) << "re_mean" << std::setw(20) << "re_error"
+            << std::setw(20) << "im_mean" << std::setw(20) << "im_error\n";
+        for (const auto& res : results) {
+            out << std::setw(8) << res.tau << std::setw(20) << res.coord1 << std::setw(20) << res.coord2
+                << std::setw(4) << res.a << std::setw(4) << res.b
+                << std::setw(20) << res.re_mean << std::setw(20) << res.re_error
+                << std::setw(20) << res.im_mean << std::setw(20) << res.im_error << '\n';
+        }
+    }
 } // namespace io
 
 namespace transform {
@@ -287,11 +383,8 @@ private:
     int local_count_ = 0;
 
 public:
-    equalTimeObservable(const std::string& filename, int rank)
-        : filename_(filename){
-        if (!utility::ensure_dir("results/" + filename_, rank)) {
-            throw std::runtime_error("Could not create results/" + filename_ + " directory");
-        }
+    equalTimeObservable(const std::string& filename, int rank) {
+        filename_ = "results/" + filename;
     }
 
     const std::string& filename() const { return filename_; }
@@ -316,35 +409,10 @@ public:
                       n_sites * n_sites, MPI_DOUBLE, MPI_SUM, comm);
         MPI_Allreduce(&local_count_, &global_count, 1, MPI_INT, MPI_SUM, comm);
 
-        static int bin_counter = 0;
         if (rank == 0) {
-            // --- 1. Data Collection ---
-            // Force evaluation of the expression to resolve overload ambiguity
             arma::mat chi_site = global_sum / global_count;
-            // Now the call is unambiguous
             auto data = transform::chi_site_to_chi_r(chi_site, lat);
-
-            // --- 2. File Writing ---
-            char fname[256];
-            std::snprintf(fname, sizeof(fname),
-                          "results/%s/binR_%04d.dat", filename_.c_str(), bin_counter++);
-
-            std::ofstream out(fname);
-            out << std::fixed << std::setprecision(12)
-                << std::setw(20) << "dx"
-                << std::setw(20) << "dy"
-                << std::setw(4)  << "a"
-                << std::setw(4)  << "b"
-                << std::setw(20) << "mean" << '\n';
-
-            for (const auto& row : data) {
-                out << std::setw(20) << row.coord1
-                    << std::setw(20) << row.coord2
-                    << std::setw(4)  << row.a
-                    << std::setw(4)  << row.b
-                    << std::setw(20) << std::setprecision(12)
-                    << row.re_mean << '\n';
-            }
+            io::save_bin_data(filename_ + "_R.bins", data);
         }
 
         local_sum_.zeros();
@@ -357,26 +425,17 @@ public:
         /* --------------------------------------------------------------- */
         /*  1. Real-space correlator χ(r)                                  */
         /* --------------------------------------------------------------- */
-        std::vector<std::string> binsR;
-        for (int idx = 0; ; ++idx) {
-            char fname[256];
-            std::snprintf(fname, sizeof(fname), "results/%s/binR_%04d.dat", filename_.c_str(), idx);
-            if (!std::ifstream(fname).good()) break;
-            binsR.emplace_back(fname);                                                                                                                                                                             
+        auto binned_data_r = io::load_bin_data(filename_ + "_R.bins");
+        if (binned_data_r.empty()) {
+            std::cerr << "Warning: no real-space data found for " << filename_ << "\n";
+            return; 
         }
-        
+
+        // Group data by (dx, dy, a, b) key to prepare for jackknife
         std::map<std::tuple<double,double,int,int>, std::vector<double>> dataR;
-        for (const std::string& bin : binsR) {
-            std::ifstream in(bin);
-            std::string line; std::getline(in, line);
-            while (std::getline(in, line)) {
-                if (line.empty() || line[0] == '#') continue;
-                std::istringstream iss(line);
-                double dx, dy; int a, b; double v;
-                if (iss >> dx >> dy >> a >> b >> v) {
-                    dataR[{dx,dy,a,b}].push_back(v);
-                }
-            }
+        for (const auto& row : binned_data_r) {
+            // The tau component (row.tau) is always 0 here, so we ignore it in the key
+            dataR[{row.coord1, row.coord2, row.a, row.b}].push_back(row.re_mean);
         }
         
         // Process real-space data and write statistics
@@ -394,55 +453,25 @@ public:
                 resultsR.emplace_back(DataRow{0, dx, dy, a, b, mean_val, error_val, 0.0, 0.0});
             }
 
-            // 3. Write results to file
-            char outnameR[256];
-            std::snprintf(outnameR, sizeof(outnameR),
-                          "results/%s/statR.dat", filename_.c_str());
-            std::ofstream outR(outnameR);
-            outR << std::fixed << std::setprecision(12)
-                 << std::setw(20) << "dx"
-                 << std::setw(20) << "dy"
-                 << std::setw(4)  << "a"
-                 << std::setw(4)  << "b"
-                 << std::setw(20) << "mean"
-                 << std::setw(20) << "error\n";
-
-            for (const auto& res : resultsR) {
-                outR << std::setw(20) << res.coord1
-                     << std::setw(20) << res.coord2
-                     << std::setw(4)  << res.a
-                     << std::setw(4)  << res.b
-                     << std::setw(20) << res.re_mean
-                     << std::setw(20) << res.re_error << '\n';
-            }
+            io::save_real_stats(filename_ + ".statR", resultsR);
         }                                                                                                                                                                                                          
                                                                                                                                                                                                                    
         /* --------------------------------------------------------------- */                                                                                                                                      
         /*  2. k-space correlator χ(k)                                     */                                                                                                                                      
         /* --------------------------------------------------------------- */                                                                                                                                      
-        std::vector<std::string> binsK;                                                                                                                                                                            
-        for (int idx = 0; ; ++idx) {                                                                                                                                                                               
-            char fname[256];                                                                                                                                                                                       
-            std::snprintf(fname, sizeof(fname),                                                                                                                                                                    
-                          "results/%s/binK_%04d.dat", filename_.c_str(), idx);                                                                                                                                     
-            if (!std::ifstream(fname).good()) break;                                                                                                                                                               
-            binsK.emplace_back(fname);                                                                                                                                                                             
-        }                                                                                                                                                                                                          
-                                                                                                                                                                                                                   
+        auto binned_data_k = io::load_bin_data(filename_ + "_K.bins");
+        if (binned_data_k.empty()) {
+            // This is normal if fourierTransform hasn't been run
+            return;
+        }
+
+        // Group data by (kx, ky, a, b) key
         std::map<std::tuple<double,double,int,int>,                                                                                                                                                                
                  std::pair<std::vector<double>,std::vector<double>>> dataK;                                                                                                                                        
-        for (const std::string& bin : binsK) {                                                                                                                                                                     
-            std::ifstream in(bin);                                                                                                                                                                                 
-            std::string line; std::getline(in, line);          // header                                                                                                                                           
-            while (std::getline(in, line)) {                                                                                                                                                                       
-                if (line.empty() || line[0] == '#') continue;                                                                                                                                                      
-                std::istringstream iss(line);                                                                                                                                                                      
-                double kx, ky; int a, b; double re, im;                                                                                                                                                            
-                if (iss >> kx >> ky >> a >> b >> re >> im) {                                                                                                                                                       
-                    dataK[{kx,ky,a,b}].first .push_back(re);                                                                                                                                                       
-                    dataK[{kx,ky,a,b}].second.push_back(im);                                                                                                                                                       
-                }                                                                                                                                                                                                  
-            }                                                                                                                                                                                                      
+        for (const auto& row : binned_data_k) {
+            auto key = std::make_tuple(row.coord1, row.coord2, row.a, row.b);
+            dataK[key].first.push_back(row.re_mean);
+            dataK[key].second.push_back(row.im_mean);
         }                                                                                                                                                                                                          
                                                                                                                                                                                                                    
         // Process k-space data and write statistics
@@ -467,31 +496,7 @@ public:
                 resultsK.emplace_back(DataRow{0, kx, ky, a, b, reMean, reError, imMean, imError});
             }
 
-            // 3. Write results to file
-            char outnameK[256];
-            std::snprintf(outnameK, sizeof(outnameK),
-                          "results/%s/statK.dat", filename_.c_str());
-            std::ofstream outK(outnameK);
-            outK << std::fixed << std::setprecision(12)
-                 << std::setw(20) << "kx"
-                 << std::setw(20) << "ky"
-                 << std::setw(4)  << "a"
-                 << std::setw(4)  << "b"
-                 << std::setw(20) << "re_mean"
-                 << std::setw(20) << "re_error"
-                 << std::setw(20) << "im_mean"
-                 << std::setw(20) << "im_error\n";
-
-            for (const auto& res : resultsK) {
-                outK << std::setw(20) << res.coord1
-                     << std::setw(20) << res.coord2
-                     << std::setw(4)  << res.a
-                     << std::setw(4)  << res.b
-                     << std::setw(20) << res.re_mean
-                     << std::setw(20) << res.re_error
-                     << std::setw(20) << res.im_mean
-                     << std::setw(20) << res.im_error << '\n';
-            }
+            io::save_complex_stats(filename_ + ".statK", resultsK);
         }                                                                                                                                                                                                          
     } 
 
@@ -502,67 +507,47 @@ public:
     {
         if (rank != 0) return;
 
-        const auto& kpts = lat.k_points();        // already shifted to (-π,π]
-        const int  nk    = static_cast<int>(kpts.size());
-        const int  n_orb = lat.n_orb();
+        // Load all real-space bins at once
+        auto binned_data_r = io::load_bin_data(filename_ + "_R.bins");
+        if (binned_data_r.empty()) return;
 
-        int bin_idx = 0;
-        while (true) {
-            char rname[256];
-            std::snprintf(rname, sizeof(rname),
-                          "results/%s/binR_%04d.dat", filename_.c_str(), bin_idx);
-            std::ifstream rin(rname);
-            if (!rin.good()) break;                 // no more bins
+        // Group data by bin. Since we don't have a bin index, we need to infer it.
+        // We can do this by finding the number of unique (dx, dy, a, b) points.
+        std::set<std::tuple<double, double, int, int>> unique_points;
+        for (const auto& row : binned_data_r) {
+            unique_points.insert({row.coord1, row.coord2, row.a, row.b});
+        }
+        const size_t points_per_bin = unique_points.size();
+        if (points_per_bin == 0) return;
+        const size_t num_bins = binned_data_r.size() / points_per_bin;
 
-            // read χ(r) into a cube (a,b,rx,ry)
-            arma::field<arma::mat> chi_r(n_orb, n_orb);
-            for (int a = 0; a < n_orb; ++a)
-                for (int b = 0; b < n_orb; ++b)
+        std::vector<DataRow> all_k_space_data;
+        all_k_space_data.reserve(binned_data_r.size());
+
+        // Process one bin at a time
+        for (size_t i = 0; i < num_bins; ++i) {
+            // Reconstruct the chi_r field for this bin
+            arma::field<arma::mat> chi_r(lat.n_orb(), lat.n_orb());
+            for (int a = 0; a < lat.n_orb(); ++a)
+                for (int b = 0; b < lat.n_orb(); ++b)
                     chi_r(a,b).zeros(lat.Lx(), lat.Ly());
 
-            std::string line;
-            std::getline(rin, line);                // skip header
-            while (std::getline(rin, line)) {
-                if (line.empty() || line[0] == '#') continue;
-                std::istringstream iss(line);
-                double rx, ry; int a, b; double v;
-                if (!(iss >> rx >> ry >> a >> b >> v)) continue;
-
-                // map (rx,ry) back to array indices
-                int ix = static_cast<int>(rx / lat.a1()[0] + lat.Lx()/2 - 1);
-                int iy = static_cast<int>(ry / lat.a2()[1] + lat.Ly()/2 - 1);
-                if (ix < 0 || ix >= lat.Lx()) continue;
-                if (iy < 0 || iy >= lat.Ly()) continue;
-                chi_r(a,b)(ix, iy) = v;
+            for (size_t j = 0; j < points_per_bin; ++j) {
+                const auto& row = binned_data_r[i * points_per_bin + j];
+                int ix = static_cast<int>(row.coord1 / lat.a1()[0] + lat.Lx()/2 - 1);
+                int iy = static_cast<int>(row.coord2 / lat.a2()[1] + lat.Ly()/2 - 1);
+                if (ix >= 0 && ix < lat.Lx() && iy >= 0 && iy < lat.Ly()) {
+                    chi_r(row.a, row.b)(ix, iy) = row.re_mean;
+                }
             }
-            rin.close();
 
-            // --- 2. Perform Fourier Transform by calling the shared function ---
-            auto k_space_data = transform::chi_r_to_chi_k(chi_r, lat);
-
-            // --- 3. Write K-Space Bin File ---
-            char kname[256];
-            std::snprintf(kname, sizeof(kname),
-                          "results/%s/binK_%04d.dat", filename_.c_str(), bin_idx);
-            std::ofstream kout(kname);
-            kout << std::fixed << std::setprecision(12)
-                 << std::setw(20) << "kx"
-                 << std::setw(20) << "ky"
-                 << std::setw(4)  << "a"
-                 << std::setw(4)  << "b"
-                 << std::setw(20) << "re_mean"
-                 << std::setw(20) << "im_mean\n";
-
-            for (const auto& row : k_space_data) {
-                kout << std::setw(20) << row.coord1
-                     << std::setw(20) << row.coord2
-                     << std::setw(4)  << row.a
-                     << std::setw(4)  << row.b
-                     << std::setw(20) << row.re_mean
-                     << std::setw(20) << row.im_mean << '\n';
-            }
-            ++bin_idx;
+            // Perform the Fourier Transform for this bin
+            auto k_space_bin_data = transform::chi_r_to_chi_k(chi_r, lat);
+            all_k_space_data.insert(all_k_space_data.end(), k_space_bin_data.begin(), k_space_bin_data.end());
         }
+
+        // Write all k-space data to a single binary file
+        io::save_bin_data(filename_ + "_K.bins", all_k_space_data);
     }
 };
 
@@ -576,11 +561,8 @@ private:
     int local_count_ = 0;
 
 public:
-    unequalTimeObservable(const std::string& filename, int rank)
-        : filename_(filename) {
-        if (!utility::ensure_dir("results/" + filename_, rank)) {
-            throw std::runtime_error("Could not create results/" + filename_ + " directory");
-        }
+    unequalTimeObservable(const std::string& filename, int rank) {
+        filename_ = "results/" + filename;
     }
 
     const std::string& filename() const { return filename_; }
@@ -609,35 +591,11 @@ public:
                       total_elements, MPI_DOUBLE, MPI_SUM, comm);
         MPI_Allreduce(&local_count_, &global_count, 1, MPI_INT, MPI_SUM, comm);
 
-        static int bin_counter = 0;
         if (rank == 0) {
-            // --- 1. Data Collection ---
             // Force evaluation of the expression to resolve overload ambiguity
             arma::cube chi_site = global_sum / global_count;
-            // Now the call is unambiguous
             auto data = transform::chi_site_to_chi_r(chi_site, lat);
-
-            // --- 2. File Writing ---
-            char fname[256];
-            std::snprintf(fname, sizeof(fname),
-                          "results/%s/binR_%04d.dat", filename_.c_str(), bin_counter++);
-            std::ofstream out(fname);
-            out << std::fixed << std::setprecision(12)
-                << std::setw(8)  << "tau"
-                << std::setw(20) << "dx"
-                << std::setw(20) << "dy"
-                << std::setw(4)  << "a"
-                << std::setw(4)  << "b"
-                << std::setw(20) << "value" << '\n';
-
-            for (const auto& row : data) {
-                out << std::setw(8)  << row.tau
-                    << std::setw(20) << row.coord1
-                    << std::setw(20) << row.coord2
-                    << std::setw(4)  << row.a
-                    << std::setw(4)  << row.b
-                    << std::setw(20) << row.re_mean << '\n';
-            }
+            io::save_bin_data(filename_ + "_R.bins", data);
         }
 
         // Reset accumulators
@@ -648,132 +606,86 @@ public:
     void fourierTransform(const Lattice& lat, int rank) {
         if (rank != 0) return;
 
-        const auto& kpts = lat.k_points();
-        const int nk = static_cast<int>(kpts.size());
-        const int n_orb = lat.n_orb();
+        auto binned_data_r = io::load_bin_data(filename_ + "_R.bins");
+        if (binned_data_r.empty()) return;
 
-        int bin_idx = 0;
-        while (true) {
-            char rname[256];
-            std::snprintf(rname, sizeof(rname),
-                          "results/%s/binR_%04d.dat", filename_.c_str(), bin_idx);
-            std::ifstream rin(rname);
-            if (!rin.good()) break;
-
-            // Read χ(τ,r) into a field indexed by tau
-            std::map<int, arma::field<arma::mat>> chi_tau_r;
-            
-            std::string line;
-            std::getline(rin, line); // skip header
-            while (std::getline(rin, line)) {
-                if (line.empty() || line[0] == '#') continue;
-                std::istringstream iss(line);
-                int tau; double rx, ry; int a, b; double v;
-                if (!(iss >> tau >> rx >> ry >> a >> b >> v)) continue;
-
-                // Initialize field for this tau if needed
-                if (chi_tau_r.find(tau) == chi_tau_r.end()) {
-                    chi_tau_r[tau] = arma::field<arma::mat>(n_orb, n_orb);
-                    for (int aa = 0; aa < n_orb; ++aa)
-                        for (int bb = 0; bb < n_orb; ++bb)
-                            chi_tau_r[tau](aa,bb).zeros(lat.Lx(), lat.Ly());
-                }
-
-                // Map (rx,ry) back to array indices
-                int ix = static_cast<int>(rx / lat.a1()[0] + lat.Lx()/2 - 1);
-                int iy = static_cast<int>(ry / lat.a2()[1] + lat.Ly()/2 - 1);
-                if (ix < 0 || ix >= lat.Lx()) continue;
-                if (iy < 0 || iy >= lat.Ly()) continue;
-                chi_tau_r[tau](a,b)(ix, iy) = v;
-            }
-            rin.close();
-
-            // --- 2. Perform Fourier Transform and Collect Data ---
-            std::vector<DataRow> k_space_data;
-            const std::array<double,2>& a1 = lat.a1();
-            const std::array<double,2>& a2 = lat.a2();
-            const double invN = 1.0 / (lat.Lx() * lat.Ly());
-
-            for (const auto& [tau, chi_r] : chi_tau_r) {
-                // Call the shared function for each tau slice
-                auto single_tau_k_data = transform::chi_r_to_chi_k(chi_r, lat, tau);
-                // Append the results to the main data vector
-                k_space_data.insert(k_space_data.end(), single_tau_k_data.begin(), single_tau_k_data.end());
-            }
-
-            // --- 3. Write K-Space Bin File ---
-            char kname[256];
-            std::snprintf(kname, sizeof(kname),
-                          "results/%s/binK_%04d.dat", filename_.c_str(), bin_idx);
-            std::ofstream kout(kname);
-            kout << std::fixed << std::setprecision(12)
-                 << std::setw(8)  << "tau"
-                 << std::setw(20) << "kx"
-                 << std::setw(20) << "ky"
-                 << std::setw(4)  << "a"
-                 << std::setw(4)  << "b"
-                 << std::setw(20) << "re_mean"
-                 << std::setw(20) << "im_mean\n";
-
-            for (const auto& row : k_space_data) {
-                kout << std::setw(8)  << row.tau
-                     << std::setw(20) << row.coord1
-                     << std::setw(20) << row.coord2
-                     << std::setw(4)  << row.a
-                     << std::setw(4)  << row.b
-                     << std::setw(20) << row.re_mean
-                     << std::setw(20) << row.im_mean << '\n';
-            }
-            ++bin_idx;
+        // Infer number of bins by finding number of unique points per bin
+        std::set<std::tuple<int, double, double, int, int>> unique_points;
+        for (const auto& row : binned_data_r) {
+            unique_points.insert({row.tau, row.coord1, row.coord2, row.a, row.b});
         }
+        const size_t points_per_bin = unique_points.size();
+        if (points_per_bin == 0) return;
+        const size_t num_bins = binned_data_r.size() / points_per_bin;
+
+        std::vector<DataRow> all_k_space_data;
+        all_k_space_data.reserve(binned_data_r.size());
+
+        // Process one bin at a time
+        for (size_t i = 0; i < num_bins; ++i) {
+            // Reconstruct the chi_r field for this bin
+            std::map<int, arma::field<arma::mat>> chi_tau_r;
+
+            for (size_t j = 0; j < points_per_bin; ++j) {
+                const auto& row = binned_data_r[i * points_per_bin + j];
+                if (chi_tau_r.find(row.tau) == chi_tau_r.end()) {
+                    chi_tau_r[row.tau].set_size(lat.n_orb(), lat.n_orb());
+                    for(int a=0; a<lat.n_orb(); ++a) for(int b=0; b<lat.n_orb(); ++b)
+                        chi_tau_r[row.tau](a,b).zeros(lat.Lx(), lat.Ly());
+                }
+                int ix = static_cast<int>(row.coord1 / lat.a1()[0] + lat.Lx()/2 - 1);
+                int iy = static_cast<int>(row.coord2 / lat.a2()[1] + lat.Ly()/2 - 1);
+                if (ix >= 0 && ix < lat.Lx() && iy >= 0 && iy < lat.Ly()) {
+                    chi_tau_r[row.tau](row.a, row.b)(ix, iy) = row.re_mean;
+                }
+            }
+
+            // Perform the Fourier Transform for this bin
+            for (const auto& [tau, chi_r] : chi_tau_r) {
+                auto k_space_bin_data = transform::chi_r_to_chi_k(chi_r, lat, tau);
+                all_k_space_data.insert(all_k_space_data.end(), k_space_bin_data.begin(), k_space_bin_data.end());
+            }
+        }
+
+        io::save_bin_data(filename_ + "_K.bins", all_k_space_data);
     }
 
     void jackknife(int rank) {
         if (rank != 0) return;
 
-        // Real-space jackknife analysis
-        std::vector<std::string> binsR;
-        for (int idx = 0; ; ++idx) {
-            char fname[256];
-            std::snprintf(fname, sizeof(fname),
-                          "results/%s/binR_%04d.dat", filename_.c_str(), idx);
-            if (!std::ifstream(fname).good()) break;
-            binsR.emplace_back(fname);
+        // --- Part 1: Real-space Jackknife ---
+        auto binned_data_r = io::load_bin_data(filename_ + "_R.bins");
+        if (binned_data_r.empty()) {
+            std::cerr << "Warning: no real-space data found for " << filename_ << "\n";
+            return;
         }
 
         std::map<std::tuple<int,double,double,int,int>, std::vector<double>> dataR;
         std::map<int, std::vector<double>> dataR0; // tau -> G_R0 values
-        
-        // No longer needed since we only use (dx=0, dy=0) values
-        
-        for (const std::string& bin : binsR) {
-            std::ifstream in(bin);
-            std::string line; std::getline(in, line); // header
-            
-            // Temporary storage for R0 data per bin (only dx=0, dy=0)
-            std::map<int, double> binR0;
-            
-            while (std::getline(in, line)) {
-                if (line.empty() || line[0] == '#') continue;
-                std::istringstream iss(line);
-                int tau; double dx, dy; int a, b; double v;
-                if (iss >> tau >> dx >> dy >> a >> b >> v) {
-                    dataR[{tau,dx,dy,a,b}].push_back(v);
-                    
-                    // Only accumulate for R0 when dx=0 and dy=0
-                    if (std::abs(dx) < 1e-12 && std::abs(dy) < 1e-12) {
-                        binR0[tau] += v;
-                    }
+
+        // Infer number of bins to correctly sum R0 data
+        std::set<std::tuple<int, double, double, int, int>> unique_points;
+        for (const auto& row : binned_data_r) {
+            unique_points.insert({row.tau, row.coord1, row.coord2, row.a, row.b});
+        }
+        const size_t points_per_bin = unique_points.size();
+        if (points_per_bin == 0) return;
+        const size_t num_bins = binned_data_r.size() / points_per_bin;
+
+        dataR0.clear();
+        for (size_t i = 0; i < num_bins; ++i) {
+            std::map<int, double> binR0_sum;
+            for (size_t j = 0; j < points_per_bin; ++j) {
+                const auto& row = binned_data_r[i * points_per_bin + j];
+                dataR[{row.tau, row.coord1, row.coord2, row.a, row.b}].push_back(row.re_mean);
+                if (std::abs(row.coord1) < 1e-12 && std::abs(row.coord2) < 1e-12) {
+                    binR0_sum[row.tau] += row.re_mean;
                 }
             }
-            
-            // Compute R0 average for this bin (sum over all orbitals at (0,0))
-            for (const auto& [tau, sum] : binR0) {
+            for (const auto& [tau, sum] : binR0_sum) {
                 dataR0[tau].push_back(sum);
             }
         }
-
-        // --- Part 1: Real-space Jackknife ---
         if (!dataR.empty()) {
             // Calculate statistics
             std::vector<DataRow> resultsR;
@@ -787,29 +699,7 @@ public:
                 resultsR.emplace_back(DataRow{tau, dx, dy, a, b, mMean, mError, 0.0, 0.0});
             }
 
-            // Write to file
-            char outnameR[256];
-            std::snprintf(outnameR, sizeof(outnameR),
-                          "results/%s/statR.dat", filename_.c_str());
-            std::ofstream outR(outnameR);
-            outR << std::fixed << std::setprecision(12)
-                 << std::setw(8)  << "tau"
-                 << std::setw(20) << "dx"
-                 << std::setw(20) << "dy"
-                 << std::setw(4)  << "a"
-                 << std::setw(4)  << "b"
-                 << std::setw(20) << "mean"
-                 << std::setw(20) << "error\n";
-
-            for (const auto& res : resultsR) {
-                outR << std::setw(8)  << res.tau
-                     << std::setw(20) << res.coord1
-                     << std::setw(20) << res.coord2
-                     << std::setw(4)  << res.a
-                     << std::setw(4)  << res.b
-                     << std::setw(20) << res.re_mean
-                     << std::setw(20) << res.re_error << '\n';
-            }
+            io::save_real_tau_stats(filename_ + ".statR", resultsR);
         }
 
         // --- Part 2: R0 Jackknife (Sum over orbitals at r=0) ---
@@ -823,10 +713,7 @@ public:
                 resultsR0.emplace_back(StatResultR0{tau, statistics::mean(means), statistics::mean(errs)});
             }
 
-            // Write to file
-            char outnameR0[256];
-            std::snprintf(outnameR0, sizeof(outnameR0),
-                          "results/%s/statR0.dat", filename_.c_str());
+            std::string outnameR0 = filename_ + ".statR0";
             std::ofstream outR0(outnameR0);
             outR0 << std::fixed << std::setprecision(12)
                   << std::setw(8)  << "tau"
@@ -841,29 +728,15 @@ public:
         }
 
         // --- Part 3: K-space Jackknife ---
-        std::vector<std::string> binsK;
-        for (int idx = 0; ; ++idx) {
-            char fname[256];
-            std::snprintf(fname, sizeof(fname),
-                          "results/%s/binK_%04d.dat", filename_.c_str(), idx);
-            if (!std::ifstream(fname).good()) break;
-            binsK.emplace_back(fname);
-        }
+        auto binned_data_k = io::load_bin_data(filename_ + "_K.bins");
+        if (binned_data_k.empty()) return;
 
         std::map<std::tuple<int,double,double,int,int>,
                  std::pair<std::vector<double>,std::vector<double>>> dataK;
-        for (const std::string& bin : binsK) {
-            std::ifstream in(bin);
-            std::string line; std::getline(in, line); // header
-            while (std::getline(in, line)) {
-                if (line.empty() || line[0] == '#') continue;
-                std::istringstream iss(line);
-                int tau; double kx, ky; int a, b; double re, im;
-                if (iss >> tau >> kx >> ky >> a >> b >> re >> im) {
-                    dataK[{tau,kx,ky,a,b}].first.push_back(re);
-                    dataK[{tau,kx,ky,a,b}].second.push_back(im);
-                }
-            }
+        for (const auto& row : binned_data_k) {
+            auto key = std::make_tuple(row.tau, row.coord1, row.coord2, row.a, row.b);
+            dataK[key].first.push_back(row.re_mean);
+            dataK[key].second.push_back(row.im_mean);
         }
 
         if (!dataK.empty()) {
@@ -886,33 +759,7 @@ public:
                 resultsK.emplace_back(DataRow{tau, kx, ky, a, b, reMean, reError, imMean, imError});
             }
 
-            // Write to file
-            char outnameK[256];
-            std::snprintf(outnameK, sizeof(outnameK),
-                          "results/%s/statK.dat", filename_.c_str());
-            std::ofstream outK(outnameK);
-            outK << std::fixed << std::setprecision(12)
-                 << std::setw(8)  << "tau"
-                 << std::setw(20) << "kx"
-                 << std::setw(20) << "ky"
-                 << std::setw(4)  << "a"
-                 << std::setw(4)  << "b"
-                 << std::setw(20) << "re_mean"
-                 << std::setw(20) << "re_error"
-                 << std::setw(20) << "im_mean"
-                 << std::setw(20) << "im_error\n";
-
-            for (const auto& res : resultsK) {
-                outK << std::setw(8)  << res.tau
-                     << std::setw(20) << res.coord1
-                     << std::setw(20) << res.coord2
-                     << std::setw(4)  << res.a
-                     << std::setw(4)  << res.b
-                     << std::setw(20) << res.re_mean
-                     << std::setw(20) << res.re_error
-                     << std::setw(20) << res.im_mean
-                     << std::setw(20) << res.im_error << '\n';
-            }
+            io::save_complex_tau_stats(filename_ + ".statK", resultsK);
         }
     }
 };
