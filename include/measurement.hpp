@@ -192,6 +192,15 @@ private:
 
     arma::mat local_sum_;
     int local_count_ = 0;
+
+    // Data structure for storing a single row of real-space correlator data.
+    struct DataRow {
+        double coord1, coord2; // (dx, dy) or (kx, ky)
+        int a, b;
+        double re_mean, re_error;
+        double im_mean, im_error; // For real data, im_* fields are 0
+    };
+
 public:
     equalTimeObservable(const std::string& filename, int rank)
         : filename_(filename){
@@ -227,6 +236,30 @@ public:
 
         static int bin_counter = 0;
         if (rank == 0) {
+            // --- 1. Data Collection ---
+            const int n_orb = chi_r.n_rows;
+            const int Lx    = chi_r(0,0).n_rows;
+            const int Ly    = chi_r(0,0).n_cols;
+            const std::array<double,2>& a1 = lat.a1();
+            const std::array<double,2>& a2 = lat.a2();
+
+            std::vector<DataRow> data;
+            data.reserve(Lx * Ly * n_orb * n_orb);
+
+            // replace indexing to distance for data writing
+            for (int rx = 0; rx < Lx; ++rx) {
+                for (int ry = 0; ry < Ly; ++ry) {
+                    double dx = (rx - Lx/2 + 1) * a1[0] + (ry - Ly/2 + 1) * a2[0];
+                    double dy = (rx - Lx/2 + 1) * a1[1] + (ry - Ly/2 + 1) * a2[1];
+                    for (int a = 0; a < n_orb; ++a) {
+                        for (int b = 0; b < n_orb; ++b) {
+                            data.emplace_back(DataRow{dx, dy, a, b, chi_r(a,b)(rx,ry), 0.0, 0.0, 0.0});
+                        }
+                    }
+                }
+            }
+
+            // --- 2. File Writing ---
             char fname[256];
             std::snprintf(fname, sizeof(fname),
                           "results/%s/binR_%04d.dat", filename_.c_str(), bin_counter++);
@@ -237,31 +270,15 @@ public:
                 << std::setw(20) << "dy"
                 << std::setw(4)  << "a"
                 << std::setw(4)  << "b"
-                << std::setw(20) << "value" << '\n';
+                << std::setw(20) << "mean" << '\n';
 
-            const int n_orb = chi_r.n_rows;
-            const int Lx    = chi_r(0,0).n_rows;
-            const int Ly    = chi_r(0,0).n_cols;
-
-            const std::array<double,2>& a1 = lat.a1();
-            const std::array<double,2>& a2 = lat.a2();
-
-            for (int rx = 0; rx < Lx; ++rx) {
-                for (int ry = 0; ry < Ly; ++ry) {
-                    for (int a = 0; a < n_orb; ++a) {
-                        for (int b = 0; b < n_orb; ++b) {
-                            double dx = (rx - Lx/2 + 1) * a1[0] + (ry - Ly/2 + 1) * a2[0];
-                            double dy = (rx - Lx/2 + 1) * a1[1] + (ry - Ly/2 + 1) * a2[1];
-                            
-                            out << std::setw(20) << dx
-                                << std::setw(20) << dy
-                                << std::setw(4)  << a
-                                << std::setw(4)  << b
-                                << std::setw(20) << std::setprecision(12)
-                                << chi_r(a,b)(rx,ry) << '\n';
-                        }
-                    }
-                }
+            for (const auto& row : data) {
+                out << std::setw(20) << row.coord1
+                    << std::setw(20) << row.coord2
+                    << std::setw(4)  << row.a
+                    << std::setw(4)  << row.b
+                    << std::setw(20) << std::setprecision(12)
+                    << row.re_mean << '\n';
             }
         }
 
@@ -269,61 +286,70 @@ public:
         local_count_ = 0;
     }
 
-    void jackknife(int rank)                                                                                                                                                                                       
-    {                                                                                                                                                                                                              
-        if (rank != 0) return;                                                                                                                                                                                     
-                                                                                                                                                                                                                   
-        /* --------------------------------------------------------------- */                                                                                                                                      
-        /*  1. Real-space correlator χ(r)                                  */                                                                                                                                      
-        /* --------------------------------------------------------------- */                                                                                                                                      
-        std::vector<std::string> binsR;                                                                                                                                                                            
-        for (int idx = 0; ; ++idx) {                                                                                                                                                                               
-            char fname[256];                                                                                                                                                                                       
-            std::snprintf(fname, sizeof(fname),                                                                                                                                                                    
-                          "results/%s/binR_%04d.dat", filename_.c_str(), idx);                                                                                                                                     
-            if (!std::ifstream(fname).good()) break;                                                                                                                                                               
+    void jackknife(int rank)
+    {
+        if (rank != 0) return;
+        /* --------------------------------------------------------------- */
+        /*  1. Real-space correlator χ(r)                                  */
+        /* --------------------------------------------------------------- */
+        std::vector<std::string> binsR;
+        for (int idx = 0; ; ++idx) {
+            char fname[256];
+            std::snprintf(fname, sizeof(fname), "results/%s/binR_%04d.dat", filename_.c_str(), idx);
+            if (!std::ifstream(fname).good()) break;
             binsR.emplace_back(fname);                                                                                                                                                                             
-        }                                                                                                                                                                                                          
-                                                                                                                                                                                                                   
-        std::map<std::tuple<double,double,int,int>, std::vector<double>> dataR;                                                                                                                                    
-        for (const std::string& bin : binsR) {                                                                                                                                                                     
-            std::ifstream in(bin);                                                                                                                                                                                 
-            std::string line; std::getline(in, line);          // header                                                                                                                                           
-            while (std::getline(in, line)) {                                                                                                                                                                       
-                if (line.empty() || line[0] == '#') continue;                                                                                                                                                      
-                std::istringstream iss(line);                                                                                                                                                                      
-                double dx, dy; int a, b; double v;                                                                                                                                                                 
-                if (iss >> dx >> dy >> a >> b >> v)                                                                                                                                                                
-                    dataR[{dx,dy,a,b}].push_back(v);                                                                                                                                                               
-            }                                                                                                                                                                                                      
-        }                                                                                                                                                                                                          
-                                                                                                                                                                                                                   
-        if (!dataR.empty()) {                                                                                                                                                                                      
-            char outnameR[256];                                                                                                                                                                                    
-            std::snprintf(outnameR, sizeof(outnameR),                                                                                                                                                              
-                          "results/%s/statR.dat", filename_.c_str());                                                                                                                                              
-            std::ofstream outR(outnameR);                                                                                                                                                                          
-            outR << std::fixed << std::setprecision(12)                                                                                                                                                            
-                 << std::setw(20) << "dx"                                                                                                                                                                          
-                 << std::setw(20) << "dy"                                                                                                                                                                          
-                 << std::setw(4)  << "a"                                                                                                                                                                           
-                 << std::setw(4)  << "b"                                                                                                                                                                           
-                 << std::setw(20) << "mean"                                                                                                                                                                        
-                 << std::setw(20) << "error\n";                                                                                                                                                                    
-                                                                                                                                                                                                                   
-            for (const auto& [key, vals] : dataR) {                                                                                                                                                                
-                if (vals.size() < 2) continue;                                                                                                                                                                     
-                const auto [means, errs] = statistics::jackknife(vals);                                                                                                                                            
-                const double mMean  = statistics::mean(means);                                                                                                                                                     
-                const double mError = statistics::mean(errs);                                                                                                                                                      
-                const auto [dx,dy,a,b] = key;                                                                                                                                                                      
-                outR << std::setw(20) << dx                                                                                                                                                                        
-                     << std::setw(20) << dy                                                                                                                                                                        
-                     << std::setw(4)  << a                                                                                                                                                                         
-                     << std::setw(4)  << b                                                                                                                                                                         
-                     << std::setw(20) << mMean                                                                                                                                                                     
-                     << std::setw(20) << mError << '\n';                                                                                                                                                           
-            }                                                                                                                                                                                                      
+        }
+        
+        std::map<std::tuple<double,double,int,int>, std::vector<double>> dataR;
+        for (const std::string& bin : binsR) {
+            std::ifstream in(bin);
+            std::string line; std::getline(in, line);
+            while (std::getline(in, line)) {
+                if (line.empty() || line[0] == '#') continue;
+                std::istringstream iss(line);
+                double dx, dy; int a, b; double v;
+                if (iss >> dx >> dy >> a >> b >> v) {
+                    dataR[{dx,dy,a,b}].push_back(v);
+                }
+            }
+        }
+        
+        // Process real-space data and write statistics
+        if (!dataR.empty()) {
+            // 2. Process data: perform jackknife and store results
+            std::vector<DataRow> resultsR;
+            resultsR.reserve(dataR.size());
+
+            for (const auto& [key, vals] : dataR) {
+                if (vals.size() < 2) continue;
+                const auto [means, errs] = statistics::jackknife(vals);
+                const double mean_val  = statistics::mean(means);
+                const double error_val = statistics::mean(errs);
+                const auto [dx,dy,a,b] = key;
+                resultsR.emplace_back(DataRow{dx, dy, a, b, mean_val, error_val, 0.0, 0.0});
+            }
+
+            // 3. Write results to file
+            char outnameR[256];
+            std::snprintf(outnameR, sizeof(outnameR),
+                          "results/%s/statR.dat", filename_.c_str());
+            std::ofstream outR(outnameR);
+            outR << std::fixed << std::setprecision(12)
+                 << std::setw(20) << "dx"
+                 << std::setw(20) << "dy"
+                 << std::setw(4)  << "a"
+                 << std::setw(4)  << "b"
+                 << std::setw(20) << "mean"
+                 << std::setw(20) << "error\n";
+
+            for (const auto& res : resultsR) {
+                outR << std::setw(20) << res.coord1
+                     << std::setw(20) << res.coord2
+                     << std::setw(4)  << res.a
+                     << std::setw(4)  << res.b
+                     << std::setw(20) << res.re_mean
+                     << std::setw(20) << res.re_error << '\n';
+            }
         }                                                                                                                                                                                                          
                                                                                                                                                                                                                    
         /* --------------------------------------------------------------- */                                                                                                                                      
@@ -354,43 +380,53 @@ public:
             }                                                                                                                                                                                                      
         }                                                                                                                                                                                                          
                                                                                                                                                                                                                    
-        if (!dataK.empty()) {                                                                                                                                                                                      
-            char outnameK[256];                                                                                                                                                                                    
-            std::snprintf(outnameK, sizeof(outnameK),                                                                                                                                                              
-                          "results/%s/statK.dat", filename_.c_str());                                                                                                                                              
-            std::ofstream outK(outnameK);                                                                                                                                                                          
-            outK << std::fixed << std::setprecision(12)                                                                                                                                                            
-                 << std::setw(20) << "kx"                                                                                                                                                                          
-                 << std::setw(20) << "ky"                                                                                                                                                                          
-                 << std::setw(4)  << "a"                                                                                                                                                                           
-                 << std::setw(4)  << "b"                                                                                                                                                                           
-                 << std::setw(20) << "re_mean"                                                                                                                                                                     
-                 << std::setw(20) << "re_error"                                                                                                                                                                    
-                 << std::setw(20) << "im_mean"                                                                                                                                                                     
-                 << std::setw(20) << "im_error\n";                                                                                                                                                                 
-                                                                                                                                                                                                                   
-            for (const auto& [key, vecs] : dataK) {                                                                                                                                                                
-                const auto& [re_vals, im_vals] = vecs;                                                                                                                                                             
-                if (re_vals.size() < 2) continue;                                                                                                                                                                  
-                                                                                                                                                                                                                   
-                const auto [re_means, re_errs] = statistics::jackknife(re_vals);                                                                                                                                   
-                const auto [im_means, im_errs] = statistics::jackknife(im_vals);                                                                                                                                   
-                                                                                                                                                                                                                   
-                const double reMean  = statistics::mean(re_means);                                                                                                                                                 
-                const double reError = statistics::mean(re_errs);                                                                                                                                                  
-                const double imMean  = statistics::mean(im_means);                                                                                                                                                 
-                const double imError = statistics::mean(im_errs);                                                                                                                                                  
-                                                                                                                                                                                                                   
-                const auto [kx,ky,a,b] = key;                                                                                                                                                                      
-                outK << std::setw(20) << kx                                                                                                                                                                        
-                     << std::setw(20) << ky                                                                                                                                                                        
-                     << std::setw(4)  << a                                                                                                                                                                         
-                     << std::setw(4)  << b                                                                                                                                                                         
-                     << std::setw(20) << reMean                                                                                                                                                                    
-                     << std::setw(20) << reError                                                                                                                                                                   
-                     << std::setw(20) << imMean                                                                                                                                                                    
-                     << std::setw(20) << imError << '\n';                                                                                                                                                          
-            }                                                                                                                                                                                                      
+        // Process k-space data and write statistics
+        if (!dataK.empty()) {
+            // 2. Process data: perform jackknife and store results
+            std::vector<DataRow> resultsK;
+            resultsK.reserve(dataK.size());
+
+            for (const auto& [key, vecs] : dataK) {
+                const auto& [re_vals, im_vals] = vecs;
+                if (re_vals.size() < 2) continue;
+
+                const auto [re_means, re_errs] = statistics::jackknife(re_vals);
+                const auto [im_means, im_errs] = statistics::jackknife(im_vals);
+
+                const double reMean  = statistics::mean(re_means);
+                const double reError = statistics::mean(re_errs);
+                const double imMean  = statistics::mean(im_means);
+                const double imError = statistics::mean(im_errs);
+
+                const auto [kx,ky,a,b] = key;
+                resultsK.emplace_back(DataRow{kx, ky, a, b, reMean, reError, imMean, imError});
+            }
+
+            // 3. Write results to file
+            char outnameK[256];
+            std::snprintf(outnameK, sizeof(outnameK),
+                          "results/%s/statK.dat", filename_.c_str());
+            std::ofstream outK(outnameK);
+            outK << std::fixed << std::setprecision(12)
+                 << std::setw(20) << "kx"
+                 << std::setw(20) << "ky"
+                 << std::setw(4)  << "a"
+                 << std::setw(4)  << "b"
+                 << std::setw(20) << "re_mean"
+                 << std::setw(20) << "re_error"
+                 << std::setw(20) << "im_mean"
+                 << std::setw(20) << "im_error\n";
+
+            for (const auto& res : resultsK) {
+                outK << std::setw(20) << res.coord1
+                     << std::setw(20) << res.coord2
+                     << std::setw(4)  << res.a
+                     << std::setw(4)  << res.b
+                     << std::setw(20) << res.re_mean
+                     << std::setw(20) << res.re_error
+                     << std::setw(20) << res.im_mean
+                     << std::setw(20) << res.im_error << '\n';
+            }
         }                                                                                                                                                                                                          
     } 
 
@@ -436,20 +472,18 @@ public:
             }
             rin.close();
 
-            // FFT for every orbital pair
-            arma::field<arma::cx_mat> chi_k(n_orb, n_orb);
-            for (int a = 0; a < n_orb; ++a)
-                for (int b = 0; b < n_orb; ++b)
-                    chi_k(a,b).set_size(nk, 1);        // store per k
-
+            // --- 2. Perform Fourier Transform and Collect Data ---
+            std::vector<DataRow> k_space_data;
+            k_space_data.reserve(nk * n_orb * n_orb);
             const std::array<double,2>& a1 = lat.a1();
             const std::array<double,2>& a2 = lat.a2();
+            const double invN = 1.0 / (lat.Lx() * lat.Ly());
 
             for (int kidx = 0; kidx < nk; ++kidx) {
                 const auto& k = kpts[kidx];
                 for (int a = 0; a < n_orb; ++a) {
                     for (int b = 0; b < n_orb; ++b) {
-                        std::complex<double> sum(0.0, 0.0);
+                        std::complex<double> chi_k(0.0, 0.0);
                         for (int rx = 0; rx < lat.Lx(); ++rx) {
                             for (int ry = 0; ry < lat.Ly(); ++ry) {
                                 double x = (rx - lat.Lx()/2 + 1) * a1[0]
@@ -457,22 +491,21 @@ public:
                                 double y = (rx - lat.Lx()/2 + 1) * a1[1]
                                          + (ry - lat.Ly()/2 + 1) * a2[1];
                                 double phase = k[0]*x + k[1]*y;
-                                sum += chi_r(a,b)(rx,ry) *
-                                       std::complex<double>(std::cos(phase),
-                                                            -std::sin(phase));
+                                chi_k += chi_r(a,b)(rx,ry) *
+                                             std::complex<double>(std::cos(phase), -std::sin(phase));
                             }
                         }
-                        chi_k(a,b)(kidx, 0) = sum;
+                        chi_k *= invN;
+                        k_space_data.emplace_back(DataRow{
+                            k[0], k[1], a, b,
+                            chi_k.real(), 0.0,
+                            chi_k.imag(), 0.0
+                        });
                     }
                 }
-                // normalise by number of real-space lattice points
-                const double invN = 1.0 / (lat.Lx() * lat.Ly());
-                for (int a = 0; a < n_orb; ++a)
-                    for (int b = 0; b < n_orb; ++b)
-                        chi_k(a,b)(kidx, 0) *= invN;
             }
 
-            // write k-space bin file
+            // --- 3. Write K-Space Bin File ---
             char kname[256];
             std::snprintf(kname, sizeof(kname),
                           "results/%s/binK_%04d.dat", filename_.c_str(), bin_idx);
@@ -482,19 +515,16 @@ public:
                  << std::setw(20) << "ky"
                  << std::setw(4)  << "a"
                  << std::setw(4)  << "b"
-                 << std::setw(20) << "re"
-                 << std::setw(20) << "im\n";
+                 << std::setw(20) << "re_mean"
+                 << std::setw(20) << "im_mean\n";
 
-            for (int kidx = 0; kidx < nk; ++kidx) {
-                const auto& k = kpts[kidx];
-                for (int a = 0; a < n_orb; ++a)
-                    for (int b = 0; b < n_orb; ++b)
-                        kout << std::setw(20) << k[0]
-                             << std::setw(20) << k[1]
-                             << std::setw(4)  << a
-                             << std::setw(4)  << b
-                             << std::setw(20) << std::real(chi_k(a,b)(kidx))
-                             << std::setw(20) << std::imag(chi_k(a,b)(kidx)) << '\n';
+            for (const auto& row : k_space_data) {
+                kout << std::setw(20) << row.coord1
+                     << std::setw(20) << row.coord2
+                     << std::setw(4)  << row.a
+                     << std::setw(4)  << row.b
+                     << std::setw(20) << row.re_mean
+                     << std::setw(20) << row.im_mean << '\n';
             }
             ++bin_idx;
         }
