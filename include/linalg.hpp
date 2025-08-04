@@ -86,259 +86,294 @@ namespace linalg {
 
         static inline LDR from_qr(const Matrix& M) {
             /*
-            / QR decomposition of a Matrix
-            /   Input parameters:
-            /       Matrix
-            / 
-            /   Return:
-            /       LDR object
+            / Decomposes a general matrix M into the LDR format (M = LDR) using a pivoted QR decomposition.
+            / This is the fundamental building block for stable matrix products.
+            /
+            /   1. Perform pivoted QR decomposition: M * P = Q * R, where P is a permutation matrix.
+            /   2. Extract the diagonal scales: D = |diag(R)|.
+            /   3. Normalize R: R_norm = D⁻¹ * R.
+            /   4. Un-apply the pivoting from R_norm to restore the original column order.
+            /   5. The final decomposition is M = Q * D * (R_norm * P⁻¹).
+            /      We define L = Q and the new R = R_norm * P⁻¹.
+            /
+            / Input:
+            /   M: The matrix to be decomposed.
+            /
+            / Return:
+            /   An LDR object representing M.
             */
 
-
-            // QR decomposition with column pivoting
-            Matrix Q, R;
-            arma::uvec P;
-            bool success = arma::qr(Q, R, P, M, "vector");
+            // Step 1: Perform QR decomposition with column pivoting.
+            // M * P = Q * R, where P is a permutation matrix that improves numerical stability
+            // by moving large columns to the left. `P_vec` stores the permutation indices.
+            Matrix Q_mat, R_mat;
+            arma::uvec P_vec; // Stores the column permutation vector
+            bool success = arma::qr(Q_mat, R_mat, P_vec, M, "vector");
             
             if (!success) {
-                throw std::runtime_error("QR decomposition failed");
+                throw std::runtime_error("QR decomposition failed in from_qr");
             }
             
-            // Extract diagonal elements
-            Vector d = arma::abs(R.diag());
+            // Step 2: Extract the diagonal elements of R as the scaling matrix D.
+            // We take the absolute value as the sign is absorbed into the R matrix.
+            Vector D_vec = arma::abs(R_mat.diag());
             
-            // Normalize R by its diagonal
-            Vector d_inv = 1.0 / d;
-            Matrix R_norm = diag_mul_mat(d_inv, R);
+            // Step 3: Normalize the R matrix by the diagonal scales.
+            // This makes the diagonal of the new R matrix consist of +1 or -1.
+            Vector D_inv_vec = 1.0 / D_vec;
+            Matrix R_normalized = diag_mul_mat(D_inv_vec, R_mat);
             
-            // Restore original column order
-            arma::uvec P_inv = arma::sort_index(P);
-            R_norm = R_norm.cols(P_inv);
+            // Step 4: Undo the column pivoting to restore the original matrix structure.
+            // We need to apply the inverse permutation P⁻¹ to the columns of R_normalized.
+            arma::uvec P_inv_vec = arma::sort_index(P_vec);
+            Matrix R_final = R_normalized.cols(P_inv_vec);
             
-            return LDR(Q, d, R_norm);
+            // Return the LDR object where L=Q, D=d, and R is the normalized, un-pivoted R matrix.
+            return LDR(Q_mat, D_vec, R_final);
         }
 
         static LDR ldr_mul_mat(const LDR& ldr, const Matrix& M) {
             /*
-            / Multiply LDR decomposition by a matrix from right: (LDR)M = L'D'R'
-            /   ldr' = L * D * (R * M)
-            /        = L * (D * M0) = L * M0
-            /        = (L * L0) * (D0) * (R0)
-            /        = L' * D' * R'
-            /   
-            /   Input:
-            /       LDR ldr
-            /       Matrix M
+            / Stably multiplies an LDR matrix by a standard matrix from the right: (LDR) * M.
             /
-            /   Return:
-            /       LDR ldr'       
+            / The operation is grouped as L * (D*R*M). The inner part is re-decomposed
+            / into a new L'D'R' to maintain stability, yielding (L*L') * D' * R'.
             */
 
-            Matrix M0 = ldr.R_ * M;
-            M0 = diag_mul_mat(ldr.d_, M0);
+            // Step 1: Calculate the inner part of the product: M_prime = D*R*M
+            Matrix M_prime = ldr.R() * M;
+            M_prime = diag_mul_mat(ldr.d(), M_prime);
             
-            LDR qr = LDR::from_qr(M0);
+            // Step 2: Re-decompose the intermediate matrix M_prime into a stable L'D'R' form.
+            LDR qr_decomp = LDR::from_qr(M_prime);
             
-            return LDR(ldr.L_ * qr.L(), qr.d(), qr.R());
+            // Step 3: Combine to form the final LDR object: (L * L') * D' * R'
+            return LDR(ldr.L() * qr_decomp.L(), qr_decomp.d(), qr_decomp.R());
         }
 
-        static LDR mat_mul_ldr(Matrix& M, LDR& ldr) {
+        static LDR mat_mul_ldr(const Matrix& M, const LDR& ldr) {
             /*
-            / Multiply matrix by LDR decomposition: M(LDR) = L'D'R'
-            / ldr' = (M * L * D) * R = M0 * R
-            /      = L0 * D0 * R0 * R
-            /      = (L0) * (D0) * (R0*R) = L' * D' * R'
+            / Stably multiplies a standard matrix by an LDR matrix from the left: M * (LDR).
             /
-            /   Input:
-            /       Matrix M
-            /       LDR ldr
-            /
-            /   Return:
-            /       LDR ldr'
+            / The operation is grouped as (M*L*D) * R. The inner part is re-decomposed
+            / into a new L'D'R' to maintain stability, yielding L' * D' * (R'*R).
             */
-            Matrix M0 = M * ldr.L_;
-            M0 = mat_mul_diag(M0, ldr.d_);
 
-            LDR qr = LDR::from_qr(M0);
+            // Step 1: Calculate the inner part of the product: M_prime = M*L*D
+            Matrix M_prime = M * ldr.L();
+            M_prime = mat_mul_diag(M_prime, ldr.d());
 
-            return LDR(qr.L(), qr.d(), qr.R() * ldr.R_);
-                                  
+            // Step 2: Re-decompose the intermediate matrix M_prime into a stable L'D'R' form.
+            LDR qr_decomp = LDR::from_qr(M_prime);
+
+            // Step 3: Combine to form the final LDR object: L' * D' * (R' * R)
+            return LDR(qr_decomp.L(), qr_decomp.d(), qr_decomp.R() * ldr.R());
         }
 
-        static LDR ldr_mul_ldr(const LDR& ldr1, const LDR& ldr2) {
+        static LDR ldr_mul_ldr(const LDR& F1, const LDR& F2) {
             /*
-            / Multiply LDR decomposition by LDR: (L1D1R1)(L2D2R2) = L'D'R'
-            /   ldr' = L1 * D1 * (R1 * L2) * D2 * R2
-            /        = L1 * (D1 * M0 * D2) * R2
-            /        = L1 * M0 * R2
-            /        = L1 * L0 * D0 * R0 * R2
-            /        = (L1 * L0) * D0 * (R0 * R2)
-            /        = L' * D' * R'
-            /   
-            /   Input:
-            /       LDR ldr1
-            /       LDR ldr2
+            / Stably multiplies two LDR matrices: F₁ * F₂.
             /
-            /   Return:
-            /       LDR ldr'       
+            / The operation is grouped as L₁ * (D₁*R₁*L₂*D₂) * R₂. The inner part is
+            / re-decomposed to maintain stability, yielding (L₁*L') * D' * (R'*R₂).
             */
 
-            Matrix M0 = ldr1.R_ * ldr2.L_;
-            M0 = arma::diagmat(ldr1.d_) * M0;
-            M0 = mat_mul_diag(M0, ldr2.d_);
+            // Step 1: Calculate the inner part of the product: M_prime = D₁*R₁*L₂*D₂
+            Matrix M_prime = F1.R() * F2.L();
+            M_prime = arma::diagmat(F1.d()) * M_prime;
+            M_prime = mat_mul_diag(M_prime, F2.d());
             
-            LDR qr = LDR::from_qr(M0);
+            // Step 2: Re-decompose the intermediate matrix M_prime into a stable L'D'R' form.
+            LDR qr_decomp = LDR::from_qr(M_prime);
 
-            return LDR(ldr1.L_ * qr.L(), qr.d(), qr.R_ * ldr2.R_);
+            // Step 3: Combine to form the final LDR object: (L₁*L') * D' * (R'*R₂)
+            return LDR(F1.L() * qr_decomp.L(), qr_decomp.d(), qr_decomp.R() * F2.R());
         }
 
-        static GreenFunc inv_eye_plus_ldr(const LDR& ldr) {
+        static GreenFunc inv_eye_plus_ldr(const LDR& F) {
             /*
-            / Compute (I + LDR)^-1 numerically stable using:
-            /   G = [I + LDR]^{-1} = R^{-1} D_max^{-1} M^{-1}
-            /   where M = R^{-1} D_max^{-1} + L D_min
+            / Computes G = [I + F]⁻¹ in a numerically stable way, where F = LDR.
+            / This is used for calculating the equal-time Green's function G(0,0) or G(β,β).
             /
-            / Input:
-            /   LDR ldr
-            /
-            / Return:
-            /   GreenFunc G
+            / The stable formula, inspired by the ALF library, is:
+            /   G = (R⁻¹ D_large⁻¹) * M⁻¹
+            /   where M = (R⁻¹ D_large⁻¹) + (L * D_small)
             */
             
-            const int n = ldr.n_rows();
+            const int n_sites = F.n_rows();
             
-            // Step 1: Split D into D_min and D_max for numerical stability
-            Vector d_max = ldr.d();
-            Vector d_min = arma::ones(n);
-            for (arma::uword i = 0; i < n; ++i) {
-                if (d_max(i) < 1.0) {
-                    d_min(i) = d_max(i);
-                    d_max(i) = 1.0;
+            // --- Step 1: Separate the diagonal matrix D into large (>=1) and small (<1) scales ---
+            // This is the core of the stabilization. We handle numbers with large and small
+            // magnitudes separately to avoid floating-point precision loss.
+            Vector D_large = arma::ones(n_sites);
+            Vector D_small = arma::ones(n_sites);
+            for (arma::uword i = 0; i < n_sites; ++i) {
+                if (F.d()(i) >= 1.0) {
+                    D_large(i) = F.d()(i);
+                } else {
+                    D_small(i) = F.d()(i);
                 }
             }
             
-            // Step 2: Solve R * X = diag(d_max_inv). X = (which is R^{-1} D_max^{-1})
-            Vector d_max_inv = 1.0 / d_max;
-            Matrix RD;
-            arma::solve(RD, ldr.R(), arma::diagmat(d_max_inv));
+            // --- Step 2: Compute the term involving large scales: R⁻¹ * D_large⁻¹ ---
+            // We solve the linear system R * X = D_large⁻¹ for X, which is more stable
+            // than explicitly calculating the inverse of R.
+            Vector D_large_inv = 1.0 / D_large;
+            Matrix R_inv_D_large_inv;
+            arma::solve(R_inv_D_large_inv, F.R(), arma::diagmat(D_large_inv));
             
-            // Step 3: Compute L D_min
-            Matrix LD = mat_mul_diag(ldr.L(), d_min);
+            // --- Step 3: Compute the term involving small scales: L * D_small ---
+            Matrix L_D_small = mat_mul_diag(F.L(), D_small);
             
-            // Step 4: Form M = R^{-1} D_max^{-1} + L D_min
-            Matrix M = RD + LD;            
+            // --- Step 4: Form the intermediate matrix M ---
+            // M is constructed by adding the two well-conditioned terms. This matrix M
+            // is much more numerically stable to invert than the original (I + LDR).
+            Matrix M = R_inv_D_large_inv + L_D_small;
             
-            // Step 5: Return G = R^{-1} D_max^{-1} M^{-1}
-            Matrix G;
-            arma::solve(G, M.t(), RD.t());
-            return G.t();
+            // --- Step 5: Solve for the final Green's function G ---
+            // We want to compute G = (R⁻¹ * D_large⁻¹) * M⁻¹.
+            // This is equivalent to solving the system G * M = (R⁻¹ * D_large⁻¹).
+            // To use arma::solve (which solves A*X=B), we transpose the system:
+            // Mᵀ * Gᵀ = (R⁻¹ * D_large⁻¹)ᵀ
+            GreenFunc G_transpose;
+            arma::solve(G_transpose, M.t(), R_inv_D_large_inv.t());
+            
+            // Return the transpose of the solution to get the final G.
+            return G_transpose.t();
         }
 
-        static GreenFunc inv_eye_plus_ldr_mul_ldr(const LDR& ldr1, const LDR& ldr2) {
+        static GreenFunc inv_eye_plus_ldr_mul_ldr(const LDR& F1, const LDR& F2) {
             /*
-            /  compute G = (I + F1F2)^{-1}, where F is LDR matrix
-            /       G = R2^{-1} * D2_max^{-1} * M^{-1} * D1_max^{-1} * L1
-            /       M = D1_max^{-1} * L1 * R2^{-1} * D2_max^{-1} + D1_min * R1 * L2 * D2_min
+            / Computes G = [I + F₁F₂]⁻¹ in a numerically stable way, where F₁ and F₂ are LDR matrices.
+            / This is used for calculating the equal-time Green's function G(τ,τ).
+            /
+            / The stable formula, inspired by the ALF library, is:
+            /   G = (R₂⁻¹ D₂,max⁻¹) * M⁻¹ * (D₁,max⁻¹ L₁ᵀ)
+            /   M = (D₁,max⁻¹ L₁ᵀ R₂⁻¹ D₂,max⁻¹) + (D₁,min R₁ L₂ D₂,min)
             */
 
-            // Step 1: Split D into D_min and D_max for numerical stability
-            int n = ldr1.n_rows();
-            Vector d1_max = ldr1.d();
-            Vector d1_min = arma::ones(n);
-            for (arma::uword i = 0; i < n; ++i) {
-                if (d1_max(i) < 1.0) {
-                    d1_min(i) = d1_max(i);
-                    d1_max(i) = 1.0;
+            const int n_sites = F1.n_rows();
+
+            // --- Step 1: Separate diagonal matrices D₁ and D₂ into large and small scales ---
+            // This is the core of the stabilization. We handle numbers >= 1.0 (large scales)
+            // and numbers < 1.0 (small scales) separately to avoid precision loss.
+
+            // Separate scales for F₁ = L₁D₁R₁
+            Vector D1_large = arma::ones(n_sites);
+            Vector D1_small = arma::ones(n_sites);
+            for (arma::uword i = 0; i < n_sites; ++i) {
+                if (F1.d()(i) >= 1.0) {
+                    D1_large(i) = F1.d()(i);
+                } else {
+                    D1_small(i) = F1.d()(i);
                 }
             }
 
-            n = ldr2.n_rows();
-            Vector d2_max = ldr2.d();
-            Vector d2_min = arma::ones(n);
-            for (arma::uword i = 0; i < n; ++i) {
-                if (d2_max(i) < 1.0) {
-                    d2_min(i) = d2_max(i);
-                    d2_max(i) = 1.0;
+            // Separate scales for F₂ = L₂D₂R₂
+            Vector D2_large = arma::ones(n_sites);
+            Vector D2_small = arma::ones(n_sites);
+            for (arma::uword i = 0; i < n_sites; ++i) {
+                if (F2.d()(i) >= 1.0) {
+                    D2_large(i) = F2.d()(i);
+                } else {
+                    D2_small(i) = F2.d()(i);
                 }
             }
 
-            // Step 2: calculate R2^{-1} * D2_max^{-1} by solving R2 * X = D2_max^{-1}
-            Vector d2_max_inv = 1.0 / d2_max;
-            Matrix RD2;
-            arma::solve(RD2, ldr2.R(), arma::diagmat(d2_max_inv));
+            // --- Step 2: Calculate the two terms that form the intermediate matrix M ---
 
-            // Step 3: calculate D1_max^{-1} * L1^†
-            Vector d1_max_inv = 1.0 / d1_max;
-            Matrix DL1 = diag_mul_mat(d1_max_inv, ldr1.L().t());
+            // Pre-calculate the common term (R₂⁻¹ * D₂,max⁻¹) by solving the linear system
+            // R₂ * X = D₂,max⁻¹. This is more stable than explicitly inverting R₂.
+            Matrix R2_inv_D2_large_inv;
+            arma::solve(R2_inv_D2_large_inv, F2.R(), arma::diagmat(1.0 / D2_large));
 
-            // Step 4: calculate D1_min * R1
-            Matrix DR1 = diag_mul_mat(d1_min, ldr1.R());
+            // Calculate Term A of M: (D₁,max⁻¹ * L₁ᵀ) * (R₂⁻¹ * D₂,max⁻¹)
+            Matrix TermA = diag_mul_mat(1.0 / D1_large, F1.L().t() * R2_inv_D2_large_inv);
 
-            // Step 5: calculate L2 * D2_min
-            Matrix LD2 = mat_mul_diag(ldr2.L(), d2_min);
+            // Calculate Term B of M: (D₁,min * R₁) * (L₂ * D₂,min)
+            Matrix TermB = diag_mul_mat(D1_small, F1.R() * mat_mul_diag(F2.L(), D2_small));
 
-            // Step 6: calculate M = (D1_max^{-1} * L1^† * R2^{-1} * D2_max^{-1} + D1_min * R1 * L2 * D2_min)
-            Matrix M = DL1 * RD2 + DR1 * LD2;
+            // Form the intermediate matrix M
+            Matrix M = TermA + TermB;
 
-            // Step 7: return G = R2^{-1} * D2_max^{-1} * M^{-1} * D1_max^{-1} * L1^†
-            // Solve M * X = DL1 for X, then multiply by RD2
-            Matrix X;
-            arma::solve(X, M, DL1);
-            return RD2 * X;
+            // --- Step 3: Solve for the final Green's function G ---
+
+            // Define the right-hand side for the final solve: RHS = D₁,max⁻¹ * L₁ᵀ
+            Matrix RHS_for_M_inv_solve = diag_mul_mat(1.0 / D1_large, F1.L().t());
+
+            // Solve the system M * Y = RHS to get Y = M⁻¹ * RHS
+            Matrix Y;
+            arma::solve(Y, M, RHS_for_M_inv_solve);
+
+            // The final result is G = (R₂⁻¹ * D₂,max⁻¹) * Y
+            return R2_inv_D2_large_inv * Y;
         }
 
-        static GreenFunc inv_invldr_plus_ldr(const LDR& ldr1, const LDR& ldr2) {
+        static GreenFunc inv_invldr_plus_ldr(const LDR& F1, const LDR& F2) {
             /*
-            / Computes G = [F1⁻¹ + F2]⁻¹ in a numerically stable way, where
-            / F₁ = ldr1 = L₁D₁R₁ and F2 = ldr2 = L2D2R2.
-            / This is typically used to calculate the time-displaced Green's function.
+            / Computes G = [F₁⁻¹ + F₂]⁻¹ in a numerically stable way.
+            / This is typically used to calculate the time-displaced Green's function G(τ,0).
             /
             / The stable formula is:
-            /   G = R2⁻¹ D2,max⁻¹ M⁻¹ D₁,min⁻¹ R₁
-            /   M = D₁,max⁻¹ L₁† R2⁻¹ D2,max⁻¹ + D₁,min R₁ L2 D2,min
+            /   G = (R₂⁻¹ D₂,max⁻¹) * M⁻¹ * (D₁,min R₁)
+            /   M = (D₁,max⁻¹ L₁ᵀ R₂⁻¹ D₂,max⁻¹) + (D₁,min R₁ L₂ D₂,min)
             */
 
-            const int n = ldr1.n_rows();
+            const int n_sites = F1.n_rows();
 
-            // Step 1: Split diagonal matrices D₁ and D2 into max/min parts
-            Vector d1_max = ldr1.d();
-            Vector d1_min = arma::ones(n);
-            for (arma::uword i = 0; i < n; ++i) {
-                if (d1_max(i) < 1.0) {
-                    d1_min(i) = d1_max(i);
-                    d1_max(i) = 1.0;
+            // --- Step 1: Separate diagonal matrices D₁ and D₂ into large and small scales ---
+            // This part is identical to the function above.
+
+            // Separate scales for F₁ = L₁D₁R₁
+            Vector D1_large = arma::ones(n_sites);
+            Vector D1_small = arma::ones(n_sites);
+            for (arma::uword i = 0; i < n_sites; ++i) {
+                if (F1.d()(i) >= 1.0) {
+                    D1_large(i) = F1.d()(i);
+                } else {
+                    D1_small(i) = F1.d()(i);
                 }
             }
-            Vector d1_max_inv = 1.0 / d1_max;
 
-            Vector d2_max = ldr2.d();
-            Vector d2_min = arma::ones(n);
-            for (arma::uword i = 0; i < n; ++i) {
-                if (d2_max(i) < 1.0) {
-                    d2_min(i) = d2_max(i);
-                    d2_max(i) = 1.0;
+            // Separate scales for F₂ = L₂D₂R₂
+            Vector D2_large = arma::ones(n_sites);
+            Vector D2_small = arma::ones(n_sites);
+            for (arma::uword i = 0; i < n_sites; ++i) {
+                if (F2.d()(i) >= 1.0) {
+                    D2_large(i) = F2.d()(i);
+                } else {
+                    D2_small(i) = F2.d()(i);
                 }
             }
-            Vector d2_max_inv = 1.0 / d2_max;
 
-            // Step 2: Calculate the two terms for M
-            
-            // Term A: D1,max⁻¹ L1† R2⁻¹ D2,max⁻¹
-            // First, compute X = R2⁻¹ D2,max⁻¹ by solving R2 * X = D2,max⁻¹
-            Matrix RD2;
-            arma::solve(RD2, ldr2.R(), arma::diagmat(d2_max_inv));
+            // --- Step 2: Calculate the two terms that form the intermediate matrix M ---
+            // This part is also identical to the function above.
 
-            Matrix DR1 = diag_mul_mat(d1_min, ldr1.R());
+            // Pre-calculate the common term (R₂⁻¹ * D₂,max⁻¹)
+            Matrix R2_inv_D2_large_inv;
+            arma::solve(R2_inv_D2_large_inv, F2.R(), arma::diagmat(1.0 / D2_large));
 
-            Matrix M = diag_mul_mat(d1_max_inv, ldr1.L().t() * RD2);
-            M += mat_mul_diag(DR1 * ldr2.L(), d2_min);
+            // Calculate Term A of M: (D₁,max⁻¹ * L₁ᵀ) * (R₂⁻¹ * D₂,max⁻¹)
+            Matrix TermA = diag_mul_mat(1.0 / D1_large, F1.L().t() * R2_inv_D2_large_inv);
 
-            // Step 3:  Compute M⁻¹ * D₁,min R₁
-            Matrix X;
-            arma::solve(X, M, DR1);
+            // Calculate Term B of M: (D₁,min * R₁) * (L₂ * D₂,min)
+            Matrix TermB = diag_mul_mat(D1_small, F1.R() * mat_mul_diag(F2.L(), D2_small));
 
-            // Step 4: final Green's function G
-            return RD2 * X;
+            // Form the intermediate matrix M
+            Matrix M = TermA + TermB;
+
+            // --- Step 3: Solve for the final Green's function G ---
+            // This is the only part that differs from the previous function.
+
+            // Define the right-hand side for the final solve: RHS = D₁,min * R₁
+            Matrix RHS_for_M_inv_solve = diag_mul_mat(D1_small, F1.R());
+
+            // Solve the system M * Y = RHS to get Y = M⁻¹ * RHS
+            Matrix Y;
+            arma::solve(Y, M, RHS_for_M_inv_solve);
+
+            // The final result is G = (R₂⁻¹ * D₂,max⁻¹) * Y
+            return R2_inv_D2_large_inv * Y;
         }
     };
 
