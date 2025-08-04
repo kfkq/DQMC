@@ -51,7 +51,7 @@ set(SOURCES
     main.cpp
     model.cpp
     dqmc.cpp
-    measurement.cpp
+    observables.cpp
 )
 
 # Add executable

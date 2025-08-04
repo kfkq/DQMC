@@ -3,6 +3,7 @@
 #include "lattice.hpp"
 #include "model.hpp" 
 #include "measurement.hpp"
+#include "observables.hpp"
 
 #include <toml.hpp>
 #include <iostream>
@@ -143,7 +144,7 @@ int main(int argc, char** argv) {
             measurements.measure(greens, lat);
 
             if (isUnequalTime) {
-                // do sweep once without updating HS field for unequal time measurements.
+                // do sweep without updating HS field for unequal time measurements.
                 sim.sweep_unequalTime(greens, propagation_stacks);
                 measurements.measure_unequalTime(greens, lat);
             }
