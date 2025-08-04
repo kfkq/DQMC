@@ -245,7 +245,6 @@ namespace transform {
     {
         const auto& kpts = lat.k_points();
         const int nk = static_cast<int>(kpts.size());
-        const double invN = 1.0 / (lat.Lx() * lat.Ly());
 
         std::vector<DataRow> k_space_data;
         if (chi_r_rows.empty()) return k_space_data;
@@ -267,7 +266,6 @@ namespace transform {
                     double phase = k[0]*x + k[1]*y;
                     chi_k_val += r_row->re_mean * std::complex<double>(std::cos(phase), -std::sin(phase));
                 }
-                chi_k_val *= invN;
                 k_space_data.emplace_back(DataRow{tau, k[0], k[1], a, b, chi_k_val.real(), 0.0, chi_k_val.imag(), 0.0});
             }
         }
