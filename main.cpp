@@ -89,17 +89,21 @@ int main(int argc, char** argv) {
     }
 
     utility::io::print_info(
-        "=== DQMC Attractive Hubbard ===\n"
+        "-------- Hamiltonian Parameters -------- \n"
+        "Hamiltonian name       : Attractive Hubbard \n",
         "Lattice                : ", latt_type, " ", Lx, "×", Ly, '\n',
         "t                      : ", t, '\n',
         "U                      : ", U, '\n',
         "mu                     : ", mu, '\n',
         "β                      : ", beta, '\n',
+        "------ Numerical & QMC Parameters ------ \n"
         "Trotter Discretization : ", dtau, '\n',
-        "Nthermal               : ", n_therms, '\n',
-        "Nsweep per bin         : ", n_sweeps, '\n',
-        "Nbin                   : ", n_bins, "\n"
-        "UnequalTime            : ", isUnequalTime, "\n\n"
+        "N of Imaginary Time    : ", nt, '\n',
+        "Stabilization interval : ", n_stab, '\n',
+        "N thermalization sweeps: ", n_therms, '\n',
+        "N sweeps per bin       : ", n_sweeps, '\n',
+        "N bins                 : ", n_bins, "\n"
+        "Measure UnequalTime ?  : ", isUnequalTime, "\n\n"
     );
 
     // measurement container
@@ -127,7 +131,7 @@ int main(int argc, char** argv) {
     const auto dt_therm = std::chrono::duration<double>(
         std::chrono::steady_clock::now() - t0_therm).count();
     
-    utility::io::print_info("Thermalization done in ", dt_therm, " s\n");
+    utility::io::print_info("Thermalization done in ", dt_therm, " seconds\n");
 
     utility::io::print_info("Start of DQMC measurement sweeps \n");
 
@@ -149,11 +153,10 @@ int main(int argc, char** argv) {
                 measurements.measure_unequalTime(greens, lat);
             }
         }
+        measurements.accumulate(lat);
 
         local_time += std::chrono::duration<double>(
             std::chrono::steady_clock::now() - t0_bin).count();
-
-        measurements.accumulate(lat);
     }
     
     // ----------------------------------------------------------------- 
