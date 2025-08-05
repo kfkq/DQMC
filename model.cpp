@@ -229,8 +229,13 @@ namespace model {
         assert(l >= 0 && l < nt_);
         assert(greens.size() == 1);
 
+        std::vector<int> site_order(ns_);
+        std::iota(site_order.begin(), site_order.end(), 0);
+        utility::random::shuffle(site_order.begin(), site_order.end());
+
+
         int accepted_ns = 0;
-        for (int i = 0; i < ns_; ++i) {
+        for (int i : site_order) {
             // calculate Δ(l,i) = exp(-2 * a * s(l, i)) - 1.0
             double delta = std::exp(-2.0 * alpha_ * fields_(l, i)) - 1.0;
             

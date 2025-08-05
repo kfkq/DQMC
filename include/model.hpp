@@ -4,6 +4,7 @@
 #include <armadillo>
 #include <cmath>
 #include <cassert>
+#include <numeric> 
 
 #include "linalg.hpp"
 #include "lattice.hpp"

@@ -17,6 +17,8 @@
 #include <iostream>
 #include <iomanip>
 #include <sys/stat.h>
+#include <algorithm>
+#include <vector>
 
 namespace utility {
     static bool ensure_dir(const std::string& path, int rank)
@@ -62,6 +64,12 @@ namespace utility {
         static bool bernoulli(double p) {
             std::bernoulli_distribution dist(p);
             return dist(get_generator());
+        }
+
+        // Generic function to shuffle a range (e.g., a vector)
+        template <typename RandomIt>
+        static void shuffle(RandomIt first, RandomIt last) {
+            std::shuffle(first, last, get_generator());
         }
     };
 

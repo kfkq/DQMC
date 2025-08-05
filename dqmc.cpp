@@ -421,7 +421,6 @@ void DQMC::sweep_unequalTime(std::vector<GF>& greens, std::vector<linalg::LDRSta
     linalg::LDR Bt0;
     linalg::LDR Bbt;
 
-    double max_error = 0.0; 
     for (int l = 0; l < nt; ++l) {
         // Get local time and stack index
         loc_l = local_l(l);
@@ -433,7 +432,7 @@ void DQMC::sweep_unequalTime(std::vector<GF>& greens, std::vector<linalg::LDRSta
 
         // Do the stabilization at interval time
         if (loc_l  == n_stab_ - 1) {      
-            //double max_error = 0.0;  
+            double max_error = 0.0;  
 
             for (int nfl = 0; nfl < n_flavor; nfl++) {
                 Bprods[nfl] = linalg::LDR::eye(model_.ns());
@@ -469,5 +468,4 @@ void DQMC::sweep_unequalTime(std::vector<GF>& greens, std::vector<linalg::LDRSta
             }
         }
     }
-    std::cout << max_error << std::endl;
 }
