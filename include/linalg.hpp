@@ -80,6 +80,12 @@ namespace linalg {
         int n_rows() const { return L_.n_rows; }
         int n_cols() const { return R_.n_cols; }
 
+        static LDR eye(arma::uword n) {
+            return LDR(arma::eye<Matrix>(n, n),
+                   arma::ones<Vector>(n),
+                   arma::eye<Matrix>(n, n));
+        }
+
         /* ----------------------------------------------------------------------------
         /                       stable linear algebra operation
         ---------------------------------------------------------------------------- */ 

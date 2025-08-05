@@ -42,20 +42,20 @@ private:
     inline int stack_idx(int l) const { return l / n_stab_; }
     inline int local_l(int l) const { return l % n_stab_; }
 
-    void calculate_Bproduct(Matrix& Bprod, int stack_idx, int nfl);
+    void calculate_Bproduct(linalg::LDR& Bprod_ldr, int stack_idx, int nfl);
 
     void propagate_GF_forward(GF& greens, int l, int nfl);
-    void update_stack_forward(linalg::LDRStack& propagation_stack, Matrix& Bprod, int i_stack);
+    void update_stack_forward(linalg::LDRStack& propagation_stack, linalg::LDR& Bprod, int i_stack);
     void stabilize_GF_forward(GF& greens, linalg::LDRStack& propagation_stack, int l);
 
     void propagate_GF_backward(GF& greens, int l, int nfl);
-    void update_stack_backward(linalg::LDRStack& propagation_stack, Matrix& Bprod, int i_stack);
+    void update_stack_backward(linalg::LDRStack& propagation_stack, linalg::LDR& Bprod, int i_stack);
     void stabilize_GF_backward(GF& greens, linalg::LDRStack& propagation_stack, int l);
 
     void propagate_unequalTime_GF_forward(GF& greens, int l, int nfl);
     void propagate_Bt0_Bbt(linalg::LDR& Bt0, linalg::LDR& Bbt, 
-                            linalg::LDRStack& propagation_stack,
-                            Matrix& Bprod, int i_stack);
+                        linalg::LDRStack& propagation_stack,
+                        linalg::LDR& Bprod, int i_stack);
     void stabilize_unequalTime(GF& greens, linalg::LDR& Bt0, linalg::LDR& Bbt, int l);
 
     double check_error(const Matrix& Gtt_temp, const Matrix& Gtt);

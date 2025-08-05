@@ -15,16 +15,13 @@ linalg::LDRStack DQMC::init_stacks(int nfl) {
 
     linalg::LDRStack propagation_stack(n_stack_);
 
-    Matrix Bprod(model_.ns(), model_.ns());
+    linalg::LDR Bbar;
     
     // Loop over stack, calculate F[end] to F[1]
     for (int i_stack = n_stack_ - 1; i_stack >= 0; i_stack--) {
-        Bprod.eye();
+        Bbar = linalg::LDR::eye(model_.ns());
 
-        calculate_Bproduct(Bprod, i_stack, nfl);
-
-        // once B product is calculated, we transform into LDR form for stable propagation
-        linalg::LDR Bbar = linalg::LDR::from_qr(Bprod);
+        calculate_Bproduct(Bbar, i_stack, nfl);
         
         // first filling of the stack no need to propagate, just simply product of B matrices
         // next stack will be propagated using prev calculated stack and calculated product of B matrices
@@ -58,18 +55,16 @@ GF DQMC::init_greenfunctions(linalg::LDRStack& propagation_stack) {
     return greens;
 }
 
-void DQMC::calculate_Bproduct(Matrix& Bprod, int i_stack, int nfl) {
+void DQMC::calculate_Bproduct(linalg::LDR& Bprod_ldr, int i_stack, int nfl) {
     /*
-    /   Build product of Bup matrices for every time interval n_stab
-    /    Loop over time slice within stack
-    /    calculate naively: Prod = B * B * ... * B
-    /      loc_t = [0, ..., n_stab-1] is a relative time slice within stack
-    /      t = [0, ..., nt-1] is a global time slice in which we convert t->global_t(loc_t)
+    / Stably builds the product of B matrices for a given stack interval.
+    / The product is accumulated into an LDR object to prevent numerical instability.
     */
-    
-    for (int loc_l = 0; loc_l < n_stab_; loc_l++) {
+    for (int loc_l = 0; loc_l < n_stab_; ++loc_l) {
         int l = global_l(i_stack, loc_l);
-        Bprod = model_.calc_B(l, nfl) * Bprod;
+        // Multiply the current B matrix with the accumulated LDR product.
+        // B(l) * (LDR_product)
+        Bprod_ldr = linalg::LDR::mat_mul_ldr(model_.calc_B(l, nfl), Bprod_ldr);
     }
 }
 
@@ -91,7 +86,7 @@ void DQMC::propagate_GF_forward(GF& greens, int l, int nfl) {
     greens.G00 = B_l * greens.G00 * invB_l;
 }
 
-void DQMC::update_stack_forward(linalg::LDRStack& propagation_stack, Matrix& Bprod, int i_stack) {
+void DQMC::update_stack_forward(linalg::LDRStack& propagation_stack, linalg::LDR& Bprod, int i_stack) {
     /*
     / Update the propagation stack when we do forward sweep
     /   if i_stack == 0, stack[0] = B(τ0, 0)
@@ -100,9 +95,9 @@ void DQMC::update_stack_forward(linalg::LDRStack& propagation_stack, Matrix& Bpr
     */
     
     if (i_stack == 0) {
-        propagation_stack[i_stack] = linalg::LDR::from_qr(Bprod);
+        propagation_stack[i_stack] = Bprod;
     } else {
-        propagation_stack[i_stack] = linalg::LDR::mat_mul_ldr(Bprod, propagation_stack[i_stack - 1]);
+        propagation_stack[i_stack] = linalg::LDR::ldr_mul_ldr(Bprod, propagation_stack[i_stack - 1]);
     }
 }
 
@@ -157,7 +152,7 @@ void DQMC::propagate_GF_backward(GF& greens, int l, int nfl) {
     greens.G00 = invB_l * greens.G00 * B_l;
 }
 
-void DQMC::update_stack_backward(linalg::LDRStack& propagation_stack, Matrix& Bprod, int i_stack) {
+void DQMC::update_stack_backward(linalg::LDRStack& propagation_stack, linalg::LDR& Bprod, int i_stack) {
     /*
     / Update the propagation stack when we do backward sweep
     /   if i_stack == end, stack[end] = B(β, β - nstab*Δτ)
@@ -165,9 +160,9 @@ void DQMC::update_stack_backward(linalg::LDRStack& propagation_stack, Matrix& Bp
     /  Here τi means time at the end of stack, τi' means time at the beginning of stack
     */
     if (i_stack == n_stack_-1) {
-        propagation_stack[i_stack] = linalg::LDR::from_qr(Bprod);
+        propagation_stack[i_stack] = Bprod;
     } else {
-        propagation_stack[i_stack] = linalg::LDR::ldr_mul_mat(propagation_stack[i_stack + 1], Bprod);
+        propagation_stack[i_stack] = linalg::LDR::ldr_mul_ldr(propagation_stack[i_stack + 1], Bprod);
     }
 }
 
@@ -227,13 +222,13 @@ void DQMC::propagate_unequalTime_GF_forward(GF& greens, int l, int nfl) {
 
 void DQMC::propagate_Bt0_Bbt(linalg::LDR& Bt0, linalg::LDR& Bbt, 
                             linalg::LDRStack& propagation_stack,
-                            Matrix& Bprod, int i_stack) 
+                            linalg::LDR& Bprod, int i_stack) 
 {
 
     if (i_stack == 0) {
-        Bt0 = linalg::LDR::from_qr(Bprod);
+        Bt0 = Bprod;
     } else {
-        Bt0 = linalg::LDR::mat_mul_ldr(Bprod, Bt0);
+        Bt0 = linalg::LDR::ldr_mul_ldr(Bprod, Bt0);
     }
 
     if (i_stack < propagation_stack.size() - 1) {  
@@ -295,7 +290,7 @@ void DQMC::sweep_0_to_beta(std::vector<GF>& greens, std::vector<linalg::LDRStack
     int n_flavor = static_cast<int>(greens.size());
     const int nt = model_.nt();
 
-    std::vector<Matrix> Bprods(n_flavor, Matrix(model_.ns(), model_.ns()));
+    std::vector<linalg::LDR> Bprods(n_flavor);
 
     // Loop over time slices forward
     // We propagate our GF, from 0 to β
@@ -318,7 +313,7 @@ void DQMC::sweep_0_to_beta(std::vector<GF>& greens, std::vector<linalg::LDRStack
             double max_error = 0.0;  
 
             for (int nfl = 0; nfl < n_flavor; nfl++) {
-                Bprods[nfl].eye();
+                Bprods[nfl] = linalg::LDR::eye(model_.ns());
 
                 // save naive propagation equal time Green's function
                 GreenFunc G00_temp = greens[nfl].G00;
@@ -363,7 +358,7 @@ void DQMC::sweep_beta_to_0(std::vector<GF>& greens, std::vector<linalg::LDRStack
     int n_flavor = static_cast<int>(greens.size());
     const int nt = model_.nt();
 
-    std::vector<Matrix> Bprods(n_flavor, Matrix(model_.ns(), model_.ns()));
+    std::vector<linalg::LDR> Bprods(n_flavor);
 
     // Loop over time slices in reverse
     // the iteration is not starting from β, but β - Δτ
@@ -386,7 +381,7 @@ void DQMC::sweep_beta_to_0(std::vector<GF>& greens, std::vector<linalg::LDRStack
             double max_error = 0.0;     
 
             for (int nfl = 0; nfl < n_flavor; nfl++) {
-                Bprods[nfl].eye();
+                Bprods[nfl] = linalg::LDR::eye(model_.ns());
 
                 // save naive propagation equal time Green's function
                 GreenFunc G00_temp = greens[nfl].G00;
@@ -422,10 +417,11 @@ void DQMC::sweep_unequalTime(std::vector<GF>& greens, std::vector<linalg::LDRSta
     int n_flavor = static_cast<int>(greens.size());
     const int nt = model_.nt();
 
-    std::vector<Matrix> Bprods(n_flavor, Matrix(model_.ns(), model_.ns()));
+    std::vector<linalg::LDR> Bprods(n_flavor);
     linalg::LDR Bt0;
     linalg::LDR Bbt;
 
+    double max_error = 0.0; 
     for (int l = 0; l < nt; ++l) {
         // Get local time and stack index
         loc_l = local_l(l);
@@ -437,10 +433,10 @@ void DQMC::sweep_unequalTime(std::vector<GF>& greens, std::vector<linalg::LDRSta
 
         // Do the stabilization at interval time
         if (loc_l  == n_stab_ - 1) {      
-            double max_error = 0.0;  
+            //double max_error = 0.0;  
 
             for (int nfl = 0; nfl < n_flavor; nfl++) {
-                Bprods[nfl].eye();
+                Bprods[nfl] = linalg::LDR::eye(model_.ns());
 
                 // save naive propagation equal time Green's function
                 GreenFunc Gtt_temp = greens[nfl].Gtt[l+1];
@@ -473,5 +469,5 @@ void DQMC::sweep_unequalTime(std::vector<GF>& greens, std::vector<linalg::LDRSta
             }
         }
     }
-
+    std::cout << max_error << std::endl;
 }
