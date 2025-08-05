@@ -43,10 +43,14 @@ namespace model {
     {    
         // compute and store the necessary constant and matrices for model and simulation
         init_expK(lat);
+
+        expV_.set_size(ns_);
         
-        compute_alpha();
+        //compute_alpha();
         
-        init_fields();
+        //init_fields();
+
+        init_GHQfields();
     } // End of model initialization
 
     
@@ -119,6 +123,44 @@ namespace model {
         }
     }
 
+    void HubbardAttractiveU::init_GHQfields() {
+        alpha_ = std::sqrt(0.5 * std::abs(U_) * dtau_); // Note the sqrt!
+        
+        gamma_.set_size(4);
+        eta_.set_size(4);
+        
+        double s6 = std::sqrt(6.0);
+        // Mapping l={-2,-1,1,2} to indices {0,1,2,3}
+        // l = -2 -> index 0
+        // l = -1 -> index 1
+        // l = +1 -> index 2
+        // l = +2 -> index 3
+        gamma_(0) = 1.0 - s6 / 3.0; // l=-2
+        gamma_(1) = 1.0 + s6 / 3.0; // l=-1
+        gamma_(2) = 1.0 + s6 / 3.0; // l=+1
+        gamma_(3) = 1.0 - s6 / 3.0; // l=+2
+
+        eta_(0) = -std::sqrt(2.0 * (3.0 + s6)); // l=-2
+        eta_(1) = -std::sqrt(2.0 * (3.0 - s6)); // l=-1
+        eta_(2) =  std::sqrt(2.0 * (3.0 - s6)); // l=+1
+        eta_(3) =  std::sqrt(2.0 * (3.0 + s6)); // l=+2
+
+        // Precompute choices for updates to avoid resampling
+        choices_.set_size(4, 3);
+        choices_ = {{1, 2, 3},   // if current field = 0, choose new = 1,2,3
+                    {0, 2, 3},   // if current field = 1, choose new = 0,2,3
+                    {0, 1, 3},   // if current field = 2, choose new = 0,1,3
+                    {0, 1, 2}}; // if current field = 3, choose new = 0,1,2
+
+        fields_.set_size(nt_, ns_);
+        // Fill with random {0, 1, 2, 3}
+        for(int t = 0; t < nt_; ++t) {
+            for(int i = 0; i < ns_; ++i) {
+                fields_(t, i) = utility::random::uniform_int(0, 3);
+            }
+        }
+    }
+
     /* --------------------------------------------------------------------------------------------- 
     /   Functions for calculation of B matrix
     /   These functions are model dependent so that the functions must defined in model.cpp
@@ -155,12 +197,11 @@ namespace model {
         / return:
         /       B matrix at time t
         */
-        Vector expV(ns_);
         for (int i = 0; i < ns_; i++) {
-            expV(i) = std::exp(alpha_ * fields_(t, i));
+            expV_(i) = std::exp( alpha_ * eta_(fields_(t, i)) );
         }
 
-        return linalg::diag_mul_mat(expV, expK_); 
+        return linalg::diag_mul_mat(expV_, expK_); 
     }
     
     Matrix HubbardAttractiveU::calc_invB(int t, int nfl) {
@@ -175,12 +216,11 @@ namespace model {
         / return:
         /       B^{-1} matrix at time t
         */
-        Vector expV(ns_);
         for (int i = 0; i < ns_; i++) {
-            expV(i) = std::exp(-alpha_ * fields_(t, i));
+            expV_(i) = std::exp( -alpha_ * eta_(fields_(t, i)) );
         }
 
-        return linalg::mat_mul_diag(invexpK_, expV);
+        return linalg::mat_mul_diag(invexpK_, expV_);
     }
 
     /* --------------------------------------------------------------------------------------------- 
@@ -231,20 +271,29 @@ namespace model {
 
         int accepted_ns = 0;
         for (int i = 0; i < ns_; ++i) {
-            // calculate Δ(l,i) = exp(-2 * a * s(l, i)) - 1.0
-            double delta = std::exp(-2.0 * alpha_ * fields_(l, i)) - 1.0;
+            // 1. Propose a new state
+            int old_field_idx = fields_(l, i);
+            int proposal_idx = utility::random::uniform_int(0, 2);
+            int new_field_idx = choices_(old_field_idx, proposal_idx);
+
+            // 2. Calculate the weight ratio R
+            double delta_eta = eta_(new_field_idx) - eta_(old_field_idx);
+
+            double bosonic_ratio = std::exp(-alpha_ * delta_eta);
+
+            double delta = (1.0 / bosonic_ratio) - 1.0;
             
-            // calculate acceptance ratio at (l, i)
-            double fermionic_ratio = acceptance_ratio(greens[0].G00, delta, i);
-            double bosonic_ratio   = 1.0 / (delta + 1.0); // non zero, since HS decomposition gives (n_up + n_dn - 1)^2
-            double acc_ratio       = bosonic_ratio * std::pow(fermionic_ratio, 2);
+            // calculate total weight ratio at (l, i)
+            double fermionic_ratio  = acceptance_ratio(greens[0].G00, delta, i);
+            double gamma_ratio      = gamma_(new_field_idx) / gamma_(old_field_idx);
+            double acc_ratio        = bosonic_ratio * gamma_ratio * ::pow(fermionic_ratio, 2);
 
             // propose an metropolis update if we accept within probability p = `acc_ratio`
             double metropolis_p = std::min(1.0, std::abs(acc_ratio));
             if (utility::random::bernoulli(metropolis_p)) {
                 accepted_ns += 1;
                 update_greens(greens[0].G00, delta, i);
-                update_fields(l, i);
+                fields_(l, i) = new_field_idx;
             }
         }
         return static_cast<double>(accepted_ns) / ns_;

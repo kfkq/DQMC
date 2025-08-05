@@ -36,10 +36,17 @@ namespace model {
             // Matrices
             Matrix expK_; 
             Matrix invexpK_; 
+            Vector expV_;
+
+            //GHQField
+            arma::vec gamma_;
+            arma::vec eta_;
+            arma::imat choices_;
             IMatrix fields_;  
 
             void init_expK(const Lattice& lat);
             void init_fields();
+            void init_GHQfields();
             void compute_alpha();
 
         public:
