@@ -63,6 +63,11 @@ namespace utility {
             std::bernoulli_distribution dist(p);
             return dist(get_generator());
         }
+
+        static int rand_GHQField() {
+            std::uniform_int_distribution<int> dist(0,3);
+            return dist(get_generator());
+        }
     };
 
     class io {

@@ -36,11 +36,15 @@ namespace model {
             // Matrices
             Matrix expK_; 
             Matrix invexpK_; 
+            Vector expV_;
+
+            //GHQField
+            arma::vec gamma_;
+            arma::vec eta_;
             IMatrix fields_;  
 
             void init_expK(const Lattice& lat);
-            void init_fields();
-            void compute_alpha();
+            void init_GHQfields();
 
         public:
             HubbardAttractiveU(const Lattice& lat, 
@@ -59,7 +63,6 @@ namespace model {
             Matrix calc_invB(int t, int nfl);
 
             double acceptance_ratio(GreenFunc& Gtt, double delta, int i);
-            void update_fields(int l, int i);
             void update_greens(GreenFunc& gtt, double delta, int i);
             double update_time_slice(std::vector<GF>& greens, int l);
     };
