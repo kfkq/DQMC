@@ -120,8 +120,6 @@ int main(int argc, char** argv) {
     //                     Start of DQMC simulation
     // -----------------------------------------------------------------
 
-    utility::io::print_info("Start of thermalization \n");
-
     // thermalization
     const auto t0_therm = std::chrono::steady_clock::now();
     for (int i = 0; i < n_therms; ++i) {
@@ -132,8 +130,6 @@ int main(int argc, char** argv) {
         std::chrono::steady_clock::now() - t0_therm).count();
     
     utility::io::print_info("Thermalization done in ", dt_therm, " seconds\n");
-
-    utility::io::print_info("Start of DQMC measurement sweeps \n");
 
     // measurement sweeps
     double local_time = 0.0;
