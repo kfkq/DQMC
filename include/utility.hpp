@@ -64,8 +64,8 @@ namespace utility {
             return dist(get_generator());
         }
 
-        static int uniform_int(int min, int max) {
-            std::uniform_int_distribution<int> dist(min, max);
+        static int rand_GHQField() {
+            std::uniform_int_distribution<int> dist(0,3);
             return dist(get_generator());
         }
     };
