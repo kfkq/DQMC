@@ -154,5 +154,82 @@ std::vector<Matrix> calculate_greenTau(const std::vector<GF>& greens, const Latt
     return greenTau;
 }
 
-} //end of Observables namespace
+std::vector<Matrix> calculate_doublonTau(const std::vector<GF>& greens, const Lattice& lat) {
+    int Lx = lat.Lx();
+    int Ly = lat.Ly();
+    int lat_size = lat.size(); 
+    int n_sites  = lat.n_sites();
+    int n_tau = greens[0].Gtt.size();
 
+    GreenFunc Gup = greens[0].G00;
+    GreenFunc Gdn = greens[0].G00; 
+    GreenFunc Gup_c = arma::eye(n_sites, n_sites) - Gup;
+    GreenFunc Gdn_c = arma::eye(n_sites, n_sites) - Gdn;
+
+    std::vector<GreenFunc> doublonTau(n_tau, GreenFunc(n_sites,n_sites));
+    for (int tau = 0; tau < n_tau; ++tau) {
+        GreenFunc Gttup = greens[0].Gtt[tau];
+        GreenFunc Gt0up = greens[0].Gt0[tau];
+        GreenFunc G0tup = greens[0].G0t[tau];
+        GreenFunc Gttdn = greens[0].Gtt[tau];
+        GreenFunc Gt0dn = greens[0].Gt0[tau];
+        GreenFunc G0tdn = greens[0].G0t[tau];
+
+        for (int i = 0; i < n_sites; ++i) {
+            for (int j = 0; j < n_sites; ++j) {
+                doublonTau[tau](i,j) = Gt0up(i,j) * Gt0dn(i,j);
+            }
+        }
+    }
+    return doublonTau;
+}
+
+std::vector<Matrix> calculate_currxxTau(const std::vector<GF>& greens, const Lattice& lat) {
+    int Lx = lat.Lx();
+    int Ly = lat.Ly();
+    int lat_size = lat.size(); 
+    int n_sites  = lat.n_sites();
+    int n_tau = greens[0].Gtt.size();
+
+    GreenFunc G00up = greens[0].G00;
+    GreenFunc G00dn = greens[0].G00; 
+    GreenFunc G00up_c = arma::eye(n_sites, n_sites) - G00up;
+    GreenFunc G00dn_c = arma::eye(n_sites, n_sites) - G00dn;
+
+    std::vector<GreenFunc> currxxTau(n_tau, GreenFunc(n_sites,n_sites));
+    for (int tau = 0; tau < n_tau; ++tau) {
+        GreenFunc Gttup = greens[0].Gtt[tau];
+        GreenFunc Gt0up = greens[0].Gt0[tau];
+        GreenFunc G0tup = greens[0].G0t[tau];
+        GreenFunc Gttdn = greens[0].Gtt[tau];
+        GreenFunc Gt0dn = greens[0].Gt0[tau];
+        GreenFunc G0tdn = greens[0].G0t[tau];
+
+        for (int i = 0; i < lat_size; ++i) {
+            int ix = lat.site_neighbors(i, {1, 0}, 0);
+            double dc_term1_i = Gttup(ix, i ) + Gttdn(ix, i );
+            double dc_term2_i = Gttup(i , ix) + Gttdn(i , ix);
+
+            for (int j = 0; j < lat_size; ++j) {
+                int jx = lat.site_neighbors(j, {1, 0}, 0);
+                double dc_term1_j = G00up(jx, j ) + G00dn(jx, j );
+                double dc_term2_j = G00up(j , jx) + G00dn(j , jx);
+
+                double c_term1 = G0tup(jx,i ) * Gt0up(ix,j ) + G0tdn(jx,i ) * Gt0dn(ix,j );
+                double c_term2 = G0tup(j ,i ) * Gt0up(ix,jx) + G0tdn(j ,i ) * Gt0dn(ix,jx);
+                double c_term3 = G0tup(jx,ix) * Gt0up(i ,j ) + G0tdn(jx,ix) * Gt0dn(i ,j );
+                double c_term4 = G0tup(j ,ix) * Gt0up(i ,jx) + G0tdn(j ,ix) * Gt0dn(i ,jx);
+
+                double term_1 = dc_term1_i * dc_term1_j - c_term1;
+                double term_2 = dc_term1_i * dc_term2_j - c_term2;
+                double term_3 = dc_term2_i * dc_term1_j - c_term3;
+                double term_4 = dc_term2_i * dc_term2_j - c_term4;
+
+                currxxTau[tau](i,j) = - (term_1 - term_2 - term_3 + term_4);
+            }
+        }
+    }
+    return currxxTau;
+}
+
+} //end of Observables namespace
