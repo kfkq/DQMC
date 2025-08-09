@@ -41,7 +41,10 @@ namespace model {
             //GHQField
             arma::vec gamma_;
             arma::vec eta_;
-            IMatrix fields_;  
+            IMatrix fields_;
+            
+            //tracking sweep direction
+            bool reverse_sweep_;
 
             void init_expK(const Lattice& lat);
             void init_GHQfields();

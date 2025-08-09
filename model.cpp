@@ -32,6 +32,8 @@ namespace model {
         init_expK(lat);
         expV_.set_size(ns_);
         init_GHQfields();
+
+        reverse_sweep_ = false;
     } 
 
     
@@ -145,7 +147,12 @@ namespace model {
         assert(greens.size() == 1);
 
         int accepted_ns = 0;
-        for (int i = 0; i < ns_; ++i) {
+
+        int step = reverse_sweep_ ? -1 : 1;
+        int start = reverse_sweep_ ? ns_ - 1 : 0;
+        int end = reverse_sweep_ ? -1 : ns_;
+
+        for (int i = start; i != end; i += step) {
             // 1. Propose a new state
             int old_field = fields_(l, i);
             int new_field;
@@ -170,6 +177,8 @@ namespace model {
                 fields_(l, i) = new_field;
             }
         }
+
+        reverse_sweep_ = !reverse_sweep_;
         return static_cast<double>(accepted_ns) / ns_;
     }
 
