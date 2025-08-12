@@ -1,4 +1,5 @@
 .aider*
 .env
 build/
-examples/results
+examples/results/
+check_features/

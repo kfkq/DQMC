@@ -14,9 +14,9 @@ compilation
     cd ..
     ```
 
-running on parameters.toml
+running on parameters.in
 
     ```bash
     cd examples
-    mpirun -np 128 ../build/dqmc_hubbard
+    mpirun -np 128 ../build/dqmc
     ```

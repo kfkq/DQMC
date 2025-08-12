@@ -32,7 +32,6 @@ endif()
 include_directories(
     ${MPI_CXX_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/external
     ${ARMADILLO_INCLUDE_DIRS}
     ${MKL_INCLUDE_DIR}
 )

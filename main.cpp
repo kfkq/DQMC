@@ -5,7 +5,7 @@
 #include "measurement.hpp"
 #include "observables.hpp"
 
-#include <toml.hpp>
+#include "utility.hpp"
 #include <iostream>
 #include <iomanip>
 #include <chrono>
@@ -40,30 +40,30 @@ int main(int argc, char** argv) {
     utility::random::set_seed(std::time(nullptr) + rank);
 
     // parse parameters file
-    toml::value params = toml::parse("parameters.toml");
+    utility::parameters params("parameters.in");
 
     // lattice parameters
-    std::string latt_type = toml::find<std::string>(params, "lattice", "type");
-    int Lx = toml::find<int>(params, "lattice" ,"Lx");
-    int Ly = toml::find<int>(params, "lattice", "Ly");
+    std::string latt_type = params.getString("lattice", "type");
+    int Lx = params.getInt("lattice", "Lx");
+    int Ly = params.getInt("lattice", "Ly");
 
     // hubbard model parameters
-    double t = toml::find<double>(params, "hubbard", "t");
-    double U = toml::find<double>(params, "hubbard", "U");
-    double mu = toml::find<double>(params, "hubbard", "mu");
+    double t = params.getDouble("hubbard", "t");
+    double U = params.getDouble("hubbard", "U");
+    double mu = params.getDouble("hubbard", "mu");
 
     // dqmc simulation parameters
-    double beta = toml::find<double>(params, "simulation", "beta");
-    int nt = toml::find<int>(params, "simulation", "nt");
+    double beta = params.getDouble("simulation", "beta");
+    int nt = params.getInt("simulation", "nt");
     double dtau = beta / nt;
 
-    int n_stab = toml::find<int>(params, "simulation", "n_stab");
+    int n_stab = params.getInt("simulation", "n_stab");
 
-    int n_sweeps = toml::find<int>(params, "simulation", "n_sweeps");
-    int n_therms = toml::find<int>(params, "simulation", "n_therms");
-    int n_bins = toml::find<int>(params, "simulation", "n_bins");
+    int n_sweeps = params.getInt("simulation", "n_sweeps");
+    int n_therms = params.getInt("simulation", "n_therms");
+    int n_bins = params.getInt("simulation", "n_bins");
 
-    bool isUnequalTime = toml::find_or<bool>(params, "simulation", "isMeasureUnequalTime", false);
+    bool isUnequalTime = params.getBool("simulation", "isMeasureUnequalTime", false);
 
     // Lattice creation
     std::array<double,2> a1{{1.0, 0.0}};
