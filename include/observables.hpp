@@ -9,9 +9,9 @@ namespace Observables {
     double calculate_doubleOccupancy(const std::vector<GF>& greens, const Lattice& lat);
     double calculate_swavePairing(const std::vector<GF>& greens, const Lattice& lat);
     arma::mat calculate_densityCorr(const std::vector<GF>& greens, const Lattice& lat);
-    std::vector<Matrix> calculate_greenTau(const std::vector<GF>& greens, const Lattice& lat);
-    std::vector<Matrix> calculate_doublonTau(const std::vector<GF>& greens, const Lattice& lat);
-    std::vector<Matrix> calculate_currxxTau(const std::vector<GF>& greens, const Lattice& lat);
+    arma::cube calculate_greenTau(const std::vector<GF>& greens, const Lattice& lat);
+    arma::cube calculate_doublonTau(const std::vector<GF>& greens, const Lattice& lat);
+    arma::cube calculate_currxxTau(const std::vector<GF>& greens, const Lattice& lat);
 }
 
 #endif

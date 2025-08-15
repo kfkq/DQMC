@@ -555,16 +555,15 @@ public:
 
     const std::string& filename() const { return filename_; }
 
-    void operator+=(const std::vector<arma::mat>& tau_matrices) {
+    void operator+=(const arma::cube& tau_obs) {
         if (matrix_size_ == 0) {
-            matrix_size_ = tau_matrices[0].n_rows;
-            n_tau_ = tau_matrices.size();
+            matrix_size_ = tau_obs.n_rows;
+            n_tau_ = tau_obs.n_slices;
             local_sum_.zeros(matrix_size_, matrix_size_, n_tau_);
         }
-        
-        for (int tau = 0; tau < n_tau_; ++tau) {
-            local_sum_.slice(tau) += tau_matrices[tau];
-        }
+
+        local_sum_ += tau_obs;
+
         ++local_count_;
     }
 
@@ -755,7 +754,7 @@ private:
     std::vector<std::function<arma::mat(const std::vector<GF>&, const Lattice&)>> eqTimeCalculators_; 
 
     std::vector<unequalTimeObservable> unequalTimeObservables_;
-    std::vector<std::function<std::vector<arma::mat>(const std::vector<GF>&, const Lattice&)>> uneqTimeCalculators_;
+    std::vector<std::function<arma::cube(const std::vector<GF>&, const Lattice&)>> uneqTimeCalculators_;
     
 public:
     MeasurementManager(MPI_Comm comm, int rank) : comm_(comm), rank_(rank) {}
@@ -773,7 +772,7 @@ public:
     }
 
     void addUnequalTime(const std::string& name,
-                        std::function<std::vector<arma::mat>(const std::vector<GF>&, const Lattice&)> calculator) {
+                        std::function<arma::cube(const std::vector<GF>&, const Lattice&)> calculator) {
         unequalTimeObservables_.emplace_back(name, rank_);
         uneqTimeCalculators_.push_back(calculator);
     }

@@ -128,7 +128,7 @@ Matrix calculate_densityCorr(const std::vector<GF>& greens, const Lattice& lat) 
     return ninj_conn;
 }
 
-std::vector<Matrix> calculate_greenTau(const std::vector<GF>& greens, const Lattice& lat) {
+arma::cube calculate_greenTau(const std::vector<GF>& greens, const Lattice& lat) {
     int Lx = lat.Lx();
     int Ly = lat.Ly();
     int lat_size = lat.size(); 
@@ -140,7 +140,7 @@ std::vector<Matrix> calculate_greenTau(const std::vector<GF>& greens, const Latt
     GreenFunc Gup_c = arma::eye(n_sites, n_sites) - Gup;
     GreenFunc Gdn_c = arma::eye(n_sites, n_sites) - Gdn;
 
-    std::vector<GreenFunc> greenTau(n_tau, GreenFunc(n_sites,n_sites));
+    arma::cube greenTau(n_sites, n_sites, n_tau);
     for (int tau = 0; tau < n_tau; ++tau) {
         GreenFunc Gttup = greens[0].Gtt[tau];
         GreenFunc Gt0up = greens[0].Gt0[tau];
@@ -149,12 +149,12 @@ std::vector<Matrix> calculate_greenTau(const std::vector<GF>& greens, const Latt
         GreenFunc Gt0dn = greens[0].Gt0[tau];
         GreenFunc G0tdn = greens[0].G0t[tau];
 
-        greenTau[tau] = Gt0up + Gt0dn;
+        greenTau.slice(tau) = Gt0up + Gt0dn;
     }
     return greenTau;
 }
 
-std::vector<Matrix> calculate_doublonTau(const std::vector<GF>& greens, const Lattice& lat) {
+arma::cube calculate_doublonTau(const std::vector<GF>& greens, const Lattice& lat) {
     int Lx = lat.Lx();
     int Ly = lat.Ly();
     int lat_size = lat.size(); 
@@ -166,7 +166,7 @@ std::vector<Matrix> calculate_doublonTau(const std::vector<GF>& greens, const La
     GreenFunc Gup_c = arma::eye(n_sites, n_sites) - Gup;
     GreenFunc Gdn_c = arma::eye(n_sites, n_sites) - Gdn;
 
-    std::vector<GreenFunc> doublonTau(n_tau, GreenFunc(n_sites,n_sites));
+    arma::cube doublonTau(n_sites, n_sites, n_tau);
     for (int tau = 0; tau < n_tau; ++tau) {
         GreenFunc Gttup = greens[0].Gtt[tau];
         GreenFunc Gt0up = greens[0].Gt0[tau];
@@ -177,14 +177,14 @@ std::vector<Matrix> calculate_doublonTau(const std::vector<GF>& greens, const La
 
         for (int i = 0; i < n_sites; ++i) {
             for (int j = 0; j < n_sites; ++j) {
-                doublonTau[tau](i,j) = Gt0up(i,j) * Gt0dn(i,j);
+                doublonTau(i,j,tau) = Gt0up(i,j) * Gt0dn(i,j);
             }
         }
     }
     return doublonTau;
 }
 
-std::vector<Matrix> calculate_currxxTau(const std::vector<GF>& greens, const Lattice& lat) {
+arma::cube calculate_currxxTau(const std::vector<GF>& greens, const Lattice& lat) {
     int Lx = lat.Lx();
     int Ly = lat.Ly();
     int lat_size = lat.size(); 
@@ -196,7 +196,7 @@ std::vector<Matrix> calculate_currxxTau(const std::vector<GF>& greens, const Lat
     GreenFunc G00up_c = arma::eye(n_sites, n_sites) - G00up;
     GreenFunc G00dn_c = arma::eye(n_sites, n_sites) - G00dn;
 
-    std::vector<GreenFunc> currxxTau(n_tau, GreenFunc(n_sites,n_sites));
+    arma::cube currxxTau(n_sites, n_sites, n_tau);
     for (int tau = 0; tau < n_tau; ++tau) {
         GreenFunc Gttup = greens[0].Gtt[tau];
         GreenFunc Gt0up = greens[0].Gt0[tau];
@@ -225,7 +225,7 @@ std::vector<Matrix> calculate_currxxTau(const std::vector<GF>& greens, const Lat
                 double term_3 = dc_term2_i * dc_term1_j - c_term3;
                 double term_4 = dc_term2_i * dc_term2_j - c_term4;
 
-                currxxTau[tau](i,j) = - (term_1 - term_2 - term_3 + term_4);
+                currxxTau(i,j, tau) = - (term_1 - term_2 - term_3 + term_4);
             }
         }
     }
