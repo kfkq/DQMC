@@ -146,7 +146,6 @@ namespace model {
         / Update Green's function and fields in one time slice by going through all space indices
         */
         assert(l >= 0 && l < nt_);
-        assert(greens.size() == 1);
 
         int accepted_ns = 0;
 
@@ -169,13 +168,13 @@ namespace model {
             double bosonic_ratio = std::exp(-1.0 * alpha_ * delta_eta);
             double delta = (1.0 / bosonic_ratio) - 1.0;
             
-            double fermionic_ratio  = acceptance_ratio(greens[0].G00, delta, i);
+            double fermionic_ratio  = acceptance_ratio(greens[0].Gtt[l+1], delta, i);
 
             double acc_ratio        = bosonic_ratio * gamma_ratio * std::pow(fermionic_ratio, 2);
             double metropolis_p = std::min(1.0, std::abs(acc_ratio));
             if (rng_.bernoulli(metropolis_p)) {
                 accepted_ns += 1;
-                update_greens(greens[0].G00, delta, i);
+                update_greens(greens[0].Gtt[l+1], delta, i);
                 fields_(l, i) = new_field;
             }
         }

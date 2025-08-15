@@ -50,10 +50,11 @@ GF DQMC::init_greenfunctions(linalg::LDRStack& propagation_stack) {
     int nt = model_.nt();
     
     GF greens;
-    greens.G00 = linalg::LDR::inv_eye_plus_ldr(propagation_stack[0]);
     greens.Gtt.resize(nt+1);
     greens.Gt0.resize(nt+1);
     greens.G0t.resize(nt+1);
+
+    greens.Gtt[0] = linalg::LDR::inv_eye_plus_ldr(propagation_stack[0]);
 
     return greens;
 }
@@ -88,7 +89,7 @@ void DQMC::propagate_GF_forward(GF& greens, int l, int nfl) {
     Matrix B_l = model_.calc_B(l, nfl);
     Matrix invB_l = model_.calc_invB(l, nfl);
 
-    greens.G00 = B_l * greens.G00 * invB_l;
+    greens.Gtt[l+1] = B_l * greens.Gtt[l] * invB_l;
 }
 
 void DQMC::update_stack_forward(linalg::LDRStack& propagation_stack, Matrix& Bprod, int i_stack) {
@@ -130,10 +131,10 @@ void DQMC::stabilize_GF_forward(GF& greens, linalg::LDRStack& propagation_stack,
     
     if (l == model_.nt() - 1) { // at last propagation
         //  G(β, β) = G(0,0) = [I + B(β,0)]^{-1}
-        greens.G00 = linalg::LDR::inv_eye_plus_ldr(propagation_stack[i_stack]);
+        greens.Gtt[l+1] = linalg::LDR::inv_eye_plus_ldr(propagation_stack[i_stack]);
     } else {
         // calculate 
-        greens.G00 = linalg::LDR::inv_eye_plus_ldr_mul_ldr(
+        greens.Gtt[l+1] = linalg::LDR::inv_eye_plus_ldr_mul_ldr(
                     propagation_stack[i_stack], 
                     propagation_stack[i_stack + 1]);
     }
@@ -154,7 +155,7 @@ void DQMC::propagate_GF_backward(GF& greens, int l, int nfl) {
     Matrix B_l = model_.calc_B(l, nfl);
     Matrix invB_l = model_.calc_invB(l, nfl);
 
-    greens.G00 = invB_l * greens.G00 * B_l;
+    greens.Gtt[l] = invB_l * greens.Gtt[l+1] * B_l;
 }
 
 void DQMC::update_stack_backward(linalg::LDRStack& propagation_stack, Matrix& Bprod, int i_stack) {
@@ -191,10 +192,10 @@ void DQMC::stabilize_GF_backward(GF& greens, linalg::LDRStack& propagation_stack
     
     if (l == 0) { // at beginning of propagation
         //  G(0,0) = [I + B(β,0)]^{-1}
-        greens.G00 = linalg::LDR::inv_eye_plus_ldr(propagation_stack[i_stack]);
+        greens.Gtt[l] = linalg::LDR::inv_eye_plus_ldr(propagation_stack[i_stack]);
     } else {
         // calculate 
-        greens.G00 = linalg::LDR::inv_eye_plus_ldr_mul_ldr(
+        greens.Gtt[l] = linalg::LDR::inv_eye_plus_ldr_mul_ldr(
                         propagation_stack[i_stack-1], 
                         propagation_stack[i_stack]);
     }
@@ -216,9 +217,8 @@ void DQMC::propagate_unequalTime_GF_forward(GF& greens, int l, int nfl) {
     Matrix invB_l = model_.calc_invB(l, nfl);
 
     if (l == 0) {
-        greens.Gtt[0] = greens.G00;
-        greens.Gt0[0] = greens.G00;
-        greens.G0t[0] = greens.G00 - arma::eye(model_.ns(),model_.ns());       
+        greens.Gt0[0] = greens.Gtt[0];
+        greens.G0t[0] = greens.Gtt[0] - arma::eye(model_.ns(),model_.ns());       
     }
     greens.Gtt[l+1] = B_l * greens.Gtt[l] * invB_l;
     greens.Gt0[l+1] = B_l * greens.Gt0[l];
@@ -321,7 +321,7 @@ void DQMC::sweep_0_to_beta(std::vector<GF>& greens, std::vector<linalg::LDRStack
                 Bprods[nfl].eye();
 
                 // save naive propagation equal time Green's function
-                GreenFunc G00_temp = greens[nfl].G00;
+                GreenFunc G00_temp = greens[nfl].Gtt[l+1];
 
                 // Calculate Bprod
                 calculate_Bproduct(Bprods[nfl], i_stack, nfl);
@@ -333,12 +333,12 @@ void DQMC::sweep_0_to_beta(std::vector<GF>& greens, std::vector<linalg::LDRStack
                 stabilize_GF_forward(greens[nfl], propagation_stacks[nfl], l);
 
                 // Check error in Green's function calculated by stabilization and naive product
-                double error = check_error(G00_temp, greens[nfl].G00);
+                double error = check_error(G00_temp, greens[nfl].Gtt[l+1]);
                 max_error = std::max(max_error, error);
             }
 
             if (max_error > 1e-6) {
-                std::cerr << "GF error beyond threshold > 1e-6 at l=" << l 
+                std::cerr << "GF forward error beyond threshold > 1e-6 at l=" << l 
                           << ". Try reducing n_stab or increasing nt. Error: " 
                           << max_error << std::endl;
                 std::exit(EXIT_FAILURE);
@@ -389,7 +389,7 @@ void DQMC::sweep_beta_to_0(std::vector<GF>& greens, std::vector<linalg::LDRStack
                 Bprods[nfl].eye();
 
                 // save naive propagation equal time Green's function
-                GreenFunc G00_temp = greens[nfl].G00;
+                GreenFunc G00_temp = greens[nfl].Gtt[l];
 
                 // Calculate Bprod
                 calculate_Bproduct(Bprods[nfl], i_stack, nfl);
@@ -401,12 +401,12 @@ void DQMC::sweep_beta_to_0(std::vector<GF>& greens, std::vector<linalg::LDRStack
                 stabilize_GF_backward(greens[nfl], propagation_stacks[nfl], l);
 
                 // Check error in Green's function calculated by stabilization and naive product
-                double error = check_error(G00_temp, greens[nfl].G00);
+                double error = check_error(G00_temp, greens[nfl].Gtt[l]);
                 max_error = std::max(max_error, error);
             }
 
             if (max_error > 1e-6) {
-                std::cerr << "GF error beyond threshold > 1e-6 at l=" << l 
+                std::cerr << "GF backward error beyond threshold > 1e-6 at l=" << l 
                           << ". Try reducing n_stab or increasing nt. Error: " 
                           << max_error << std::endl;
                 std::exit(EXIT_FAILURE);
@@ -443,7 +443,7 @@ void DQMC::sweep_unequalTime(std::vector<GF>& greens, std::vector<linalg::LDRSta
                 Bprods[nfl].eye();
 
                 // save naive propagation equal time Green's function
-                GreenFunc Gtt_temp = greens[nfl].Gtt[l+1];
+                //GreenFunc Gtt_temp = greens[nfl].Gtt[l+1];
                 GreenFunc Gt0_temp = greens[nfl].Gt0[l+1];
                 GreenFunc G0t_temp = greens[nfl].G0t[l+1];
 
@@ -457,9 +457,9 @@ void DQMC::sweep_unequalTime(std::vector<GF>& greens, std::vector<linalg::LDRSta
                 stabilize_unequalTime(greens[nfl], Bt0, Bbt, l);
 
                 // Check error in Green's function calculated by stabilization and naive product
-                double error = check_error(Gtt_temp, greens[nfl].Gtt[l+1]);
-                max_error = std::max(max_error, error);
-                error = check_error(Gt0_temp, greens[nfl].Gt0[l+1]);
+                //double error = check_error(Gtt_temp, greens[nfl].Gtt[l+1]);
+                //max_error = std::max(max_error, error);
+                double error = check_error(Gt0_temp, greens[nfl].Gt0[l+1]);
                 max_error = std::max(max_error, error);
                 error = check_error(G0t_temp, greens[nfl].G0t[l+1]);
                 max_error = std::max(max_error, error);
