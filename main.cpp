@@ -114,7 +114,8 @@ int main(int argc, char** argv) {
     measurements.addScalar("swave", Observables::calculate_swavePairing);
     measurements.addEqualTime("densityCorr", Observables::calculate_densityCorr);
     if (isUnequalTime) {
-         measurements.addUnequalTime("greenTau", Observables::calculate_greenTau);
+        measurements.addUnequalTime("greenTau", Observables::calculate_greenTau);
+        measurements.addUnequalTime("currxxTau", Observables::calculate_currxxTau);
     }
 
     // ----------------------------------------------------------------- 
