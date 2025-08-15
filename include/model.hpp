@@ -43,6 +43,9 @@ namespace model {
             arma::vec eta_;
             IMatrix fields_;
             
+            // Random number generator
+            utility::random& rng_;
+            
             //tracking sweep direction
             bool reverse_sweep_;
 
@@ -52,7 +55,8 @@ namespace model {
         public:
             HubbardAttractiveU(const Lattice& lat, 
                             double t, double U, double mu, 
-                            double dtau, int nt);
+                            double dtau, int nt,
+                            utility::random& rng);
 
             // Getters
             const Matrix& expK() const { return expK_; }

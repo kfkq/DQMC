@@ -51,27 +51,28 @@ namespace utility {
     
     class random {
     private:
-        // Static random engine getter 
-        static std::mt19937& get_generator() {
-            static std::mt19937 generator;
-            return generator;
-        }
+        std::mt19937 generator_;
 
     public:
         // Function to initialize random engine
-        static void set_seed(unsigned int seed) {
-            get_generator().seed(seed);
+        void set_seed(unsigned int seed) {
+            generator_.seed(seed);
         }
 
         // Function that returns boolean value false or true based on probability p
-        static bool bernoulli(double p) {
+        bool bernoulli(double p) {
             std::bernoulli_distribution dist(p);
-            return dist(get_generator());
+            return dist(generator_);
         }
 
-        static int rand_GHQField() {
+        int rand_GHQField() {
             std::uniform_int_distribution<int> dist(0,3);
-            return dist(get_generator());
+            return dist(generator_);
+        }
+        
+        // Getter for the generator (to pass to other classes)
+        std::mt19937& get_generator() {
+            return generator_;
         }
     };
 

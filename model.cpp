@@ -16,7 +16,8 @@ namespace model {
         double U,              
         double mu,               
         double dtau,        
-        int nt    
+        int nt,
+        utility::random& rng
     ) : 
         // Initialize model parameters
         t_(t),
@@ -26,7 +27,8 @@ namespace model {
         n_flavor_(1),
         
         ns_(lat.size()),
-        nt_(nt)
+        nt_(nt),
+        rng_(rng)
     {    
         // compute and store the necessary constant and matrices for model and simulation
         init_expK(lat);
@@ -83,7 +85,7 @@ namespace model {
         // Fill with random {0, 1, 2, 3}
         for(int t = 0; t < nt_; ++t) {
             for(int i = 0; i < ns_; ++i) {
-                fields_(t, i) = utility::random::rand_GHQField();
+                fields_(t, i) = rng_.rand_GHQField();
             }
         }
     }
@@ -157,7 +159,7 @@ namespace model {
             int old_field = fields_(l, i);
             int new_field;
             do {
-                new_field = utility::random::rand_GHQField();
+                new_field = rng_.rand_GHQField();
             } while (new_field == old_field); // make sure new field != old field
 
             // 2. total acc_ratio = gamma_R * bosonic_R * fermionic_R
@@ -171,7 +173,7 @@ namespace model {
 
             double acc_ratio        = bosonic_ratio * gamma_ratio * std::pow(fermionic_ratio, 2);
             double metropolis_p = std::min(1.0, std::abs(acc_ratio));
-            if (utility::random::bernoulli(metropolis_p)) {
+            if (rng_.bernoulli(metropolis_p)) {
                 accepted_ns += 1;
                 update_greens(greens[0].G00, delta, i);
                 fields_(l, i) = new_field;

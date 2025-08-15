@@ -37,7 +37,8 @@ int main(int argc, char** argv) {
     // -----------------------------------------------------------------
 
     // Initialize the random number generator with a seed
-    utility::random::set_seed(std::time(nullptr) + rank);
+    utility::random rng;
+    rng.set_seed(std::time(nullptr) + rank);
 
     // parse parameters file
     utility::parameters params("parameters.in");
@@ -72,7 +73,7 @@ int main(int argc, char** argv) {
     Lattice lat = Lattice::create_lattice(a1, a2, orbs, Lx, Ly);
 
     // Model initialization
-    auto hubbard = model::HubbardAttractiveU(lat, t, U, mu, dtau, nt);
+    auto hubbard = model::HubbardAttractiveU(lat, t, U, mu, dtau, nt, rng);
     
     // model dependent DQMC factorization. Hubbard model are factorized by spin index.
     int n_flavor = hubbard.n_flavor(); 
