@@ -32,6 +32,9 @@ private:
 
     int n_stab_;
     int n_stack_;
+
+    std::vector<Matrix> B_;
+    std::vector<Matrix> invB_;    
     
     double acc_rate_;
     double avg_sgn_;
@@ -41,7 +44,7 @@ private:
     inline int stack_idx(int l) const { return l / n_stab_; }
     inline int local_l(int l) const { return l % n_stab_; }
 
-    void calculate_Bproduct(Matrix& Bprod, int stack_idx, int nfl);
+    void calculate_Bproduct(Matrix& Bprod, int stack_idx, int nfl, bool cache);
 
     void propagate_GF_forward(GF& greens, int l, int nfl);
     void update_stack_forward(linalg::LDRStack& propagation_stack, Matrix& Bprod, int i_stack);
