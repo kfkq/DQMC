@@ -1,5 +1,7 @@
 #include "dqmc.hpp"
 #include "model.hpp"
+#include <algorithm>
+#include <vector>
 
 namespace model {
 
@@ -34,8 +36,6 @@ namespace model {
         init_expK(lat);
         expV_.set_size(ns_);
         init_GHQfields();
-
-        reverse_sweep_ = false;
     } 
 
     
@@ -149,11 +149,16 @@ namespace model {
 
         int accepted_ns = 0;
 
-        int step = reverse_sweep_ ? -1 : 1;
-        int start = reverse_sweep_ ? ns_ - 1 : 0;
-        int end = reverse_sweep_ ? -1 : ns_;
+        // Create a randomized order of sites
+        std::vector<int> site_order(ns_);
+        for (int i = 0; i < ns_; ++i) {
+            site_order[i] = i;
+        }
+        std::shuffle(site_order.begin(), site_order.end(), rng_.get_generator());
 
-        for (int i = start; i != end; i += step) {
+        for (int idx = 0; idx < ns_; ++idx) {
+            int i = site_order[idx];
+            
             // 1. Propose a new state
             int old_field = fields_(l, i);
             int new_field;
@@ -170,7 +175,7 @@ namespace model {
             
             double fermionic_ratio  = acceptance_ratio(greens[0].Gtt[l+1], delta, i);
 
-            double acc_ratio        = bosonic_ratio * gamma_ratio * std::pow(fermionic_ratio, 2);
+            double acc_ratio = bosonic_ratio * gamma_ratio * std::pow(fermionic_ratio, 2);
             double metropolis_p = std::min(1.0, std::abs(acc_ratio));
             if (rng_.bernoulli(metropolis_p)) {
                 accepted_ns += 1;
@@ -179,7 +184,6 @@ namespace model {
             }
         }
 
-        reverse_sweep_ = !reverse_sweep_;
         return static_cast<double>(accepted_ns) / ns_;
     }
 
