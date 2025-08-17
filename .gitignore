@@ -3,3 +3,4 @@
 build/
 examples/results/
 check_features/
+.vscode/
