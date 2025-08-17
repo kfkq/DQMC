@@ -2,7 +2,7 @@
 #include "linalg.hpp"
 #include "lattice.hpp"
 #include "model.hpp" 
-#include "measurement.hpp"
+#include "measurementh5.hpp"
 #include "observables.hpp"
 
 #include "utility.hpp"
@@ -162,10 +162,9 @@ int main(int argc, char** argv) {
     //                         Finalization
     // -----------------------------------------------------------------
     
-    // Final analysis
-    utility::io::print_info("Final Data Analysis: Fourier Transform + Jacknife Analysis \n");
-    measurements.fourierTransform(lat);
-    measurements.jacknifeAnalysis();
+    // Final analysis (removed as requested)
+    utility::io::print_info("Jacknife Analysis for Error Estimation \n");
+    // measurements.jacknifeAnalysis();
 
     // Computational time details
     double total_time = 0.0;
