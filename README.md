@@ -20,3 +20,9 @@ running on parameters.in
     cd examples
     mpirun -np 128 ../build/dqmc
     ```
+
+Final error estimation using jacknife analysis
+
+    ```bash
+    python ../scripts/analysis.py
+    ```
