@@ -72,6 +72,33 @@ int main(int argc, char** argv) {
     std::vector<std::array<double,2>> orbs{{{0.0, 0.0}}};
     Lattice lat = Lattice::create_lattice(a1, a2, orbs, Lx, Ly);
 
+    // Save lattice information for analysis
+    if (rank == master) {
+        // Create results directory if it doesn't exist
+        struct stat info;
+        if (stat("results", &info) != 0) {
+            #if defined(_WIN32)
+            _mkdir("results");
+            #else
+            mkdir("results", 0755);
+            #endif
+        }
+        
+        // Write lattice info to file
+        std::string info_file = "results/info";
+        std::ofstream info_out(info_file);
+        if (info_out.is_open()) {
+            info_out << "Lx " << Lx << "\n";
+            info_out << "Ly " << Ly << "\n";
+            info_out << "a1_x " << a1[0] << "\n";
+            info_out << "a1_y " << a1[1] << "\n";
+            info_out << "a2_x " << a2[0] << "\n";
+            info_out << "a2_y " << a2[1] << "\n";
+            info_out << "n_orb " << lat.n_orb() << "\n";
+            info_out.close();
+        }
+    }
+
     // Model initialization
     auto hubbard = model::HubbardAttractiveU(lat, t, U, mu, dtau, nt, rng);
     
@@ -162,7 +189,7 @@ int main(int argc, char** argv) {
     //                         Finalization
     // -----------------------------------------------------------------
     
-    // Final analysis (removed as requested)
+    // Final analysis
     utility::io::print_info("Jacknife Analysis for Error Estimation \n");
     // measurements.jacknifeAnalysis();
 

@@ -311,10 +311,15 @@ private:
         std::string group_name = "/bin_" + std::to_string(current_bin_);
         hid_t group_id = H5Gcreate2(file_id_, group_name.c_str(), H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         
+        // Create subgroups for different types of observables
+        hid_t scalar_group_id = H5Gcreate2(group_id, "scalar", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        hid_t eqtime_group_id = H5Gcreate2(group_id, "equaltime", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        hid_t uneqtime_group_id = H5Gcreate2(group_id, "unequaltime", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        
         // Write scalar data
         for (size_t i = 0; i < scalarNames_.size(); ++i) {
             std::string dataset_name = scalarNames_[i];
-            hdf5::write_scalar(group_id, dataset_name, scalarData_[i]);
+            hdf5::write_scalar(scalar_group_id, dataset_name, scalarData_[i]);
         }
         
         // Write equal-time data (raw data, no transformation)
@@ -322,7 +327,7 @@ private:
             if (eqTimeData_[i].n_rows > 0) {
                 std::string dataset_name = eqTimeNames_[i];
                 arma::cube chi_r = transform::chi_site_to_chi_r(eqTimeData_[i], lat);
-                hdf5::write_cube(group_id, dataset_name, chi_r);
+                hdf5::write_cube(eqtime_group_id, dataset_name, chi_r);
             }
         }
         
@@ -331,11 +336,16 @@ private:
             if (uneqTimeData_[i].n_rows > 0) {
                 std::string dataset_name = uneqTimeNames_[i];
                 arma::cube chi_r = transform::chi_site_to_chi_r(uneqTimeData_[i], lat);
-                hdf5::write_cube(group_id, dataset_name, chi_r);
+                hdf5::write_cube(uneqtime_group_id, dataset_name, chi_r);
             }
         }
         
-        // Close the group
+        // Close the subgroups
+        H5Gclose(scalar_group_id);
+        H5Gclose(eqtime_group_id);
+        H5Gclose(uneqtime_group_id);
+        
+        // Close the bin group
         H5Gclose(group_id);
     }
     
@@ -347,13 +357,17 @@ private:
         std::string group_name = "/binK_" + std::to_string(current_bin_);
         hid_t group_id = H5Gcreate2(file_id_, group_name.c_str(), H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         
+        // Create subgroups for different types of observables
+        hid_t eqtime_group_id = H5Gcreate2(group_id, "equaltime", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        hid_t uneqtime_group_id = H5Gcreate2(group_id, "unequaltime", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        
         // Write equal-time data (Fourier transformed)
         for (size_t i = 0; i < eqTimeNames_.size(); ++i) {
             if (eqTimeData_[i].n_rows > 0) {
                 std::string dataset_name = eqTimeNames_[i];
                 arma::cube chi_r = transform::chi_site_to_chi_r(eqTimeData_[i], lat);
                 arma::cx_cube chi_k = transform::chi_r_to_chi_k(chi_r, lat);
-                hdf5::write_complex_cube(group_id, dataset_name, chi_k);
+                hdf5::write_complex_cube(eqtime_group_id, dataset_name, chi_k);
             }
         }
         
@@ -363,11 +377,15 @@ private:
                 std::string dataset_name = uneqTimeNames_[i];
                 arma::cube chi_r = transform::chi_site_to_chi_r(uneqTimeData_[i], lat);
                 arma::cx_cube chi_k = transform::chi_r_to_chi_k(chi_r, lat);
-                hdf5::write_complex_cube(group_id, dataset_name, chi_k);
+                hdf5::write_complex_cube(uneqtime_group_id, dataset_name, chi_k);
             }
         }
         
-        // Close the group
+        // Close the subgroups
+        H5Gclose(eqtime_group_id);
+        H5Gclose(uneqtime_group_id);
+        
+        // Close the bin group
         H5Gclose(group_id);
     }
     
