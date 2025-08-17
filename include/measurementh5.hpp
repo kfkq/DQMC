@@ -254,11 +254,8 @@ public:
             }
         }
         
-        // Save data to HDF5 file
+        // Save data to HDF5 file (both real space and k-space)
         saveToHDF5(lat);
-        
-        // Save Fourier-transformed data to HDF5 file
-        saveToHDF5K(lat);
         
         // Reset accumulators
         for (size_t i = 0; i < scalarData_.size(); ++i) {
@@ -307,91 +304,69 @@ private:
             file_opened_ = true;
         }
         
-        // Create group for this bin
-        std::string group_name = "/bin_" + std::to_string(current_bin_);
-        hid_t group_id = H5Gcreate2(file_id_, group_name.c_str(), H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        // Create groups for this bin (both real space and k-space)
+        std::string group_name_r = "/bin_" + std::to_string(current_bin_);
+        std::string group_name_k = "/binK_" + std::to_string(current_bin_);
+        hid_t group_id_r = H5Gcreate2(file_id_, group_name_r.c_str(), H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        hid_t group_id_k = H5Gcreate2(file_id_, group_name_k.c_str(), H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         
-        // Create subgroups for different types of observables
-        hid_t scalar_group_id = H5Gcreate2(group_id, "scalar", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-        hid_t eqtime_group_id = H5Gcreate2(group_id, "equaltime", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-        hid_t uneqtime_group_id = H5Gcreate2(group_id, "unequaltime", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        // Create subgroups for different types of observables (real space)
+        hid_t scalar_group_id_r = H5Gcreate2(group_id_r, "scalar", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        hid_t eqtime_group_id_r = H5Gcreate2(group_id_r, "equaltime", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        hid_t uneqtime_group_id_r = H5Gcreate2(group_id_r, "unequaltime", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         
-        // Write scalar data
+        // Create subgroups for different types of observables (k-space)
+        hid_t eqtime_group_id_k = H5Gcreate2(group_id_k, "equaltime", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        hid_t uneqtime_group_id_k = H5Gcreate2(group_id_k, "unequaltime", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        
+        // Write scalar data (only for real space)
         for (size_t i = 0; i < scalarNames_.size(); ++i) {
             std::string dataset_name = scalarNames_[i];
-            hdf5::write_scalar(scalar_group_id, dataset_name, scalarData_[i]);
+            hdf5::write_scalar(scalar_group_id_r, dataset_name, scalarData_[i]);
         }
         
-        // Write equal-time data (raw data, no transformation)
+        // Write equal-time data (both real space and k-space)
         for (size_t i = 0; i < eqTimeNames_.size(); ++i) {
             if (eqTimeData_[i].n_rows > 0) {
                 std::string dataset_name = eqTimeNames_[i];
                 arma::cube chi_r = transform::chi_site_to_chi_r(eqTimeData_[i], lat);
-                hdf5::write_cube(eqtime_group_id, dataset_name, chi_r);
+                
+                // Real space data
+                hdf5::write_cube(eqtime_group_id_r, dataset_name, chi_r);
+                
+                // K-space data (Fourier transformed)
+                arma::cx_cube chi_k = transform::chi_r_to_chi_k(chi_r, lat);
+                hdf5::write_complex_cube(eqtime_group_id_k, dataset_name, chi_k);
             }
         }
         
-        // Write unequal-time data (raw data, no transformation)
+        // Write unequal-time data (both real space and k-space)
         for (size_t i = 0; i < uneqTimeNames_.size(); ++i) {
             if (uneqTimeData_[i].n_rows > 0) {
                 std::string dataset_name = uneqTimeNames_[i];
                 arma::cube chi_r = transform::chi_site_to_chi_r(uneqTimeData_[i], lat);
-                hdf5::write_cube(uneqtime_group_id, dataset_name, chi_r);
-            }
-        }
-        
-        // Close the subgroups
-        H5Gclose(scalar_group_id);
-        H5Gclose(eqtime_group_id);
-        H5Gclose(uneqtime_group_id);
-        
-        // Close the bin group
-        H5Gclose(group_id);
-    }
-    
-    void saveToHDF5K(const Lattice& lat) {
-        // This function should only be called after file is opened
-        if (!file_opened_) return;
-        
-        // Create group for this bin in k-space
-        std::string group_name = "/binK_" + std::to_string(current_bin_);
-        hid_t group_id = H5Gcreate2(file_id_, group_name.c_str(), H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-        
-        // Create subgroups for different types of observables
-        hid_t eqtime_group_id = H5Gcreate2(group_id, "equaltime", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-        hid_t uneqtime_group_id = H5Gcreate2(group_id, "unequaltime", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-        
-        // Write equal-time data (Fourier transformed)
-        for (size_t i = 0; i < eqTimeNames_.size(); ++i) {
-            if (eqTimeData_[i].n_rows > 0) {
-                std::string dataset_name = eqTimeNames_[i];
-                arma::cube chi_r = transform::chi_site_to_chi_r(eqTimeData_[i], lat);
+                
+                // Real space data
+                hdf5::write_cube(uneqtime_group_id_r, dataset_name, chi_r);
+                
+                // K-space data (Fourier transformed)
                 arma::cx_cube chi_k = transform::chi_r_to_chi_k(chi_r, lat);
-                hdf5::write_complex_cube(eqtime_group_id, dataset_name, chi_k);
+                hdf5::write_complex_cube(uneqtime_group_id_k, dataset_name, chi_k);
             }
         }
         
-        // Write unequal-time data (Fourier transformed)
-        for (size_t i = 0; i < uneqTimeNames_.size(); ++i) {
-            if (uneqTimeData_[i].n_rows > 0) {
-                std::string dataset_name = uneqTimeNames_[i];
-                arma::cube chi_r = transform::chi_site_to_chi_r(uneqTimeData_[i], lat);
-                arma::cx_cube chi_k = transform::chi_r_to_chi_k(chi_r, lat);
-                hdf5::write_complex_cube(uneqtime_group_id, dataset_name, chi_k);
-            }
-        }
+        // Close the subgroups (real space)
+        H5Gclose(scalar_group_id_r);
+        H5Gclose(eqtime_group_id_r);
+        H5Gclose(uneqtime_group_id_r);
         
-        // Close the subgroups
-        H5Gclose(eqtime_group_id);
-        H5Gclose(uneqtime_group_id);
+        // Close the subgroups (k-space)
+        H5Gclose(eqtime_group_id_k);
+        H5Gclose(uneqtime_group_id_k);
         
-        // Close the bin group
-        H5Gclose(group_id);
-    }
-    
-public:    
-    void jacknifeAnalysis() {
-        // No-op as requested
+        // Close the bin groups
+        H5Gclose(group_id_r);
+        H5Gclose(group_id_k);
     }
 };
 

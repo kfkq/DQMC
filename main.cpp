@@ -188,10 +188,6 @@ int main(int argc, char** argv) {
     // ----------------------------------------------------------------- 
     //                         Finalization
     // -----------------------------------------------------------------
-    
-    // Final analysis
-    utility::io::print_info("Jacknife Analysis for Error Estimation \n");
-    // measurements.jacknifeAnalysis();
 
     // Computational time details
     double total_time = 0.0;
@@ -207,8 +203,6 @@ int main(int argc, char** argv) {
         utility::io::print_info(
             "DQMC measurement sweeps are finished in ",
             h, " hours ", m, " minutes ", s, " seconds.\n"
-            "Average time each sweep = ",
-            std::fixed, std::setprecision(3), avg_per_sweep, " s\n"
             "Average acceptance rate = ",
             std::fixed, std::setprecision(4),
             sim.acc_rate() / (2.0 * (n_bins * n_sweeps + n_therms)), '\n'
