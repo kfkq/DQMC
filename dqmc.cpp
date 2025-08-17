@@ -15,13 +15,16 @@ linalg::LDRStack DQMC::init_stacks(int nfl) {
 
     linalg::LDRStack propagation_stack(n_stack_);
 
+    B_.resize(model_.nt(), Matrix(model_.ns(), model_.ns()));
+    invB_.resize(model_.nt(), Matrix(model_.ns(), model_.ns()));
+
     Matrix Bprod(model_.ns(), model_.ns());
     
     // Loop over stack, calculate F[end] to F[1]
     for (int i_stack = n_stack_ - 1; i_stack >= 0; i_stack--) {
         Bprod.eye();
 
-        calculate_Bproduct(Bprod, i_stack, nfl);
+        calculate_Bproduct(Bprod, i_stack, nfl, false);
 
         // once B product is calculated, we transform into LDR form for stable propagation
         linalg::LDR Bbar = linalg::LDR::from_qr(Bprod);
@@ -50,15 +53,16 @@ GF DQMC::init_greenfunctions(linalg::LDRStack& propagation_stack) {
     int nt = model_.nt();
     
     GF greens;
-    greens.G00 = linalg::LDR::inv_eye_plus_ldr(propagation_stack[0]);
     greens.Gtt.resize(nt+1);
     greens.Gt0.resize(nt+1);
     greens.G0t.resize(nt+1);
 
+    greens.Gtt[0] = linalg::LDR::inv_eye_plus_ldr(propagation_stack[0]);
+
     return greens;
 }
 
-void DQMC::calculate_Bproduct(Matrix& Bprod, int i_stack, int nfl) {
+void DQMC::calculate_Bproduct(Matrix& Bprod, int i_stack, int nfl, bool cache) {
     /*
     /   Build product of Bup matrices for every time interval n_stab
     /    Loop over time slice within stack
@@ -69,7 +73,10 @@ void DQMC::calculate_Bproduct(Matrix& Bprod, int i_stack, int nfl) {
     
     for (int loc_l = 0; loc_l < n_stab_; loc_l++) {
         int l = global_l(i_stack, loc_l);
-        Bprod = model_.calc_B(l, nfl) * Bprod;
+        if (!cache) {
+            B_[l] = model_.calc_B(l, nfl);
+        }
+        Bprod = B_[l] * Bprod;
     }
 }
 
@@ -85,10 +92,10 @@ void DQMC::propagate_GF_forward(GF& greens, int l, int nfl) {
     /       Gtt = B_l * Gtt * B_l^{-1}
     */
 
-    Matrix B_l = model_.calc_B(l, nfl);
-    Matrix invB_l = model_.calc_invB(l, nfl);
+    B_[l] = model_.calc_B(l, nfl);
+    invB_[l] = model_.calc_invB(l, nfl);
 
-    greens.G00 = B_l * greens.G00 * invB_l;
+    greens.Gtt[l+1] = B_[l] * greens.Gtt[l] * invB_[l];
 }
 
 void DQMC::update_stack_forward(linalg::LDRStack& propagation_stack, Matrix& Bprod, int i_stack) {
@@ -130,10 +137,10 @@ void DQMC::stabilize_GF_forward(GF& greens, linalg::LDRStack& propagation_stack,
     
     if (l == model_.nt() - 1) { // at last propagation
         //  G(β, β) = G(0,0) = [I + B(β,0)]^{-1}
-        greens.G00 = linalg::LDR::inv_eye_plus_ldr(propagation_stack[i_stack]);
+        greens.Gtt[l+1] = linalg::LDR::inv_eye_plus_ldr(propagation_stack[i_stack]);
     } else {
         // calculate 
-        greens.G00 = linalg::LDR::inv_eye_plus_ldr_mul_ldr(
+        greens.Gtt[l+1] = linalg::LDR::inv_eye_plus_ldr_mul_ldr(
                     propagation_stack[i_stack], 
                     propagation_stack[i_stack + 1]);
     }
@@ -151,10 +158,10 @@ void DQMC::propagate_GF_backward(GF& greens, int l, int nfl) {
     /       Gttup = B_l^{-1} * Gttup * B_l
     */
 
-    Matrix B_l = model_.calc_B(l, nfl);
-    Matrix invB_l = model_.calc_invB(l, nfl);
+    B_[l] = model_.calc_B(l, nfl);
+    invB_[l] = model_.calc_invB(l, nfl);
 
-    greens.G00 = invB_l * greens.G00 * B_l;
+    greens.Gtt[l] = invB_[l] * greens.Gtt[l+1] * B_[l];
 }
 
 void DQMC::update_stack_backward(linalg::LDRStack& propagation_stack, Matrix& Bprod, int i_stack) {
@@ -191,10 +198,10 @@ void DQMC::stabilize_GF_backward(GF& greens, linalg::LDRStack& propagation_stack
     
     if (l == 0) { // at beginning of propagation
         //  G(0,0) = [I + B(β,0)]^{-1}
-        greens.G00 = linalg::LDR::inv_eye_plus_ldr(propagation_stack[i_stack]);
+        greens.Gtt[l] = linalg::LDR::inv_eye_plus_ldr(propagation_stack[i_stack]);
     } else {
         // calculate 
-        greens.G00 = linalg::LDR::inv_eye_plus_ldr_mul_ldr(
+        greens.Gtt[l] = linalg::LDR::inv_eye_plus_ldr_mul_ldr(
                         propagation_stack[i_stack-1], 
                         propagation_stack[i_stack]);
     }
@@ -212,17 +219,13 @@ void DQMC::propagate_unequalTime_GF_forward(GF& greens, int l, int nfl) {
     /       Gtt = B_l * Gtt * B_l^{-1}
     */
 
-    Matrix B_l = model_.calc_B(l, nfl);
-    Matrix invB_l = model_.calc_invB(l, nfl);
-
     if (l == 0) {
-        greens.Gtt[0] = greens.G00;
-        greens.Gt0[0] = greens.G00;
-        greens.G0t[0] = greens.G00 - arma::eye(model_.ns(),model_.ns());       
+        greens.Gt0[0] = greens.Gtt[0];
+        greens.G0t[0] = greens.Gtt[0] - arma::eye(model_.ns(),model_.ns());       
     }
-    greens.Gtt[l+1] = B_l * greens.Gtt[l] * invB_l;
-    greens.Gt0[l+1] = B_l * greens.Gt0[l];
-    greens.G0t[l+1] = greens.G0t[l] * invB_l;
+    greens.Gtt[l+1] = B_[l] * greens.Gtt[l] * invB_[l];
+    greens.Gt0[l+1] = B_[l] * greens.Gt0[l];
+    greens.G0t[l+1] = greens.G0t[l] * invB_[l];
 }
 
 void DQMC::propagate_Bt0_Bbt(linalg::LDR& Bt0, linalg::LDR& Bbt, 
@@ -321,10 +324,10 @@ void DQMC::sweep_0_to_beta(std::vector<GF>& greens, std::vector<linalg::LDRStack
                 Bprods[nfl].eye();
 
                 // save naive propagation equal time Green's function
-                GreenFunc G00_temp = greens[nfl].G00;
+                GreenFunc G00_temp = greens[nfl].Gtt[l+1];
 
                 // Calculate Bprod
-                calculate_Bproduct(Bprods[nfl], i_stack, nfl);
+                calculate_Bproduct(Bprods[nfl], i_stack, nfl, false);
 
                 // Update stacks
                 update_stack_forward(propagation_stacks[nfl], Bprods[nfl], i_stack);
@@ -333,12 +336,12 @@ void DQMC::sweep_0_to_beta(std::vector<GF>& greens, std::vector<linalg::LDRStack
                 stabilize_GF_forward(greens[nfl], propagation_stacks[nfl], l);
 
                 // Check error in Green's function calculated by stabilization and naive product
-                double error = check_error(G00_temp, greens[nfl].G00);
+                double error = check_error(G00_temp, greens[nfl].Gtt[l+1]);
                 max_error = std::max(max_error, error);
             }
 
             if (max_error > 1e-6) {
-                std::cerr << "GF error beyond threshold > 1e-6 at l=" << l 
+                std::cerr << "GF forward error beyond threshold > 1e-6 at l=" << l 
                           << ". Try reducing n_stab or increasing nt. Error: " 
                           << max_error << std::endl;
                 std::exit(EXIT_FAILURE);
@@ -389,10 +392,10 @@ void DQMC::sweep_beta_to_0(std::vector<GF>& greens, std::vector<linalg::LDRStack
                 Bprods[nfl].eye();
 
                 // save naive propagation equal time Green's function
-                GreenFunc G00_temp = greens[nfl].G00;
+                GreenFunc G00_temp = greens[nfl].Gtt[l];
 
                 // Calculate Bprod
-                calculate_Bproduct(Bprods[nfl], i_stack, nfl);
+                calculate_Bproduct(Bprods[nfl], i_stack, nfl, false);
 
                 // Update stacks
                 update_stack_backward(propagation_stacks[nfl], Bprods[nfl], i_stack);
@@ -401,12 +404,12 @@ void DQMC::sweep_beta_to_0(std::vector<GF>& greens, std::vector<linalg::LDRStack
                 stabilize_GF_backward(greens[nfl], propagation_stacks[nfl], l);
 
                 // Check error in Green's function calculated by stabilization and naive product
-                double error = check_error(G00_temp, greens[nfl].G00);
+                double error = check_error(G00_temp, greens[nfl].Gtt[l]);
                 max_error = std::max(max_error, error);
             }
 
             if (max_error > 1e-6) {
-                std::cerr << "GF error beyond threshold > 1e-6 at l=" << l 
+                std::cerr << "GF backward error beyond threshold > 1e-6 at l=" << l 
                           << ". Try reducing n_stab or increasing nt. Error: " 
                           << max_error << std::endl;
                 std::exit(EXIT_FAILURE);
@@ -448,7 +451,7 @@ void DQMC::sweep_unequalTime(std::vector<GF>& greens, std::vector<linalg::LDRSta
                 GreenFunc G0t_temp = greens[nfl].G0t[l+1];
 
                 // Calculate Bprod
-                calculate_Bproduct(Bprods[nfl], i_stack, nfl);
+                calculate_Bproduct(Bprods[nfl], i_stack, nfl, true);
 
                 // Update stacks
                 propagate_Bt0_Bbt(Bt0, Bbt, propagation_stacks[nfl], Bprods[nfl], i_stack);

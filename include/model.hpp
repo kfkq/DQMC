@@ -45,9 +45,6 @@ namespace model {
             
             // Random number generator
             utility::random& rng_;
-            
-            //tracking sweep direction
-            bool reverse_sweep_;
 
             void init_expK(const Lattice& lat);
             void init_GHQfields();

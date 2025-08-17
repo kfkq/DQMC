@@ -2,7 +2,7 @@
 #include "linalg.hpp"
 #include "lattice.hpp"
 #include "model.hpp" 
-#include "measurement.hpp"
+#include "measurementh5.hpp"
 #include "observables.hpp"
 
 #include "utility.hpp"
@@ -72,6 +72,33 @@ int main(int argc, char** argv) {
     std::vector<std::array<double,2>> orbs{{{0.0, 0.0}}};
     Lattice lat = Lattice::create_lattice(a1, a2, orbs, Lx, Ly);
 
+    // Save lattice information for analysis
+    if (rank == master) {
+        // Create results directory if it doesn't exist
+        struct stat info;
+        if (stat("results", &info) != 0) {
+            #if defined(_WIN32)
+            _mkdir("results");
+            #else
+            mkdir("results", 0755);
+            #endif
+        }
+        
+        // Write lattice info to file
+        std::string info_file = "results/info";
+        std::ofstream info_out(info_file);
+        if (info_out.is_open()) {
+            info_out << "Lx " << Lx << "\n";
+            info_out << "Ly " << Ly << "\n";
+            info_out << "a1_x " << a1[0] << "\n";
+            info_out << "a1_y " << a1[1] << "\n";
+            info_out << "a2_x " << a2[0] << "\n";
+            info_out << "a2_y " << a2[1] << "\n";
+            info_out << "n_orb " << lat.n_orb() << "\n";
+            info_out.close();
+        }
+    }
+
     // Model initialization
     auto hubbard = model::HubbardAttractiveU(lat, t, U, mu, dtau, nt, rng);
     
@@ -115,6 +142,7 @@ int main(int argc, char** argv) {
     measurements.addEqualTime("densityCorr", Observables::calculate_densityCorr);
     if (isUnequalTime) {
         measurements.addUnequalTime("greenTau", Observables::calculate_greenTau);
+        measurements.addUnequalTime("doublonTau", Observables::calculate_doublonTau);
         measurements.addUnequalTime("currxxTau", Observables::calculate_currxxTau);
     }
 
@@ -160,11 +188,6 @@ int main(int argc, char** argv) {
     // ----------------------------------------------------------------- 
     //                         Finalization
     // -----------------------------------------------------------------
-    
-    // Final analysis
-    utility::io::print_info("Final Data Analysis: Fourier Transform + Jacknife Analysis \n");
-    measurements.fourierTransform(lat);
-    measurements.jacknifeAnalysis();
 
     // Computational time details
     double total_time = 0.0;
@@ -180,8 +203,6 @@ int main(int argc, char** argv) {
         utility::io::print_info(
             "DQMC measurement sweeps are finished in ",
             h, " hours ", m, " minutes ", s, " seconds.\n"
-            "Average time each sweep = ",
-            std::fixed, std::setprecision(3), avg_per_sweep, " s\n"
             "Average acceptance rate = ",
             std::fixed, std::setprecision(4),
             sim.acc_rate() / (2.0 * (n_bins * n_sweeps + n_therms)), '\n'

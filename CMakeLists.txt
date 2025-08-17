@@ -12,6 +12,9 @@ find_package(MPI REQUIRED)
 # Find Armadillo
 find_package(Armadillo REQUIRED)
 
+# Find HDF5
+find_package(HDF5 REQUIRED COMPONENTS CXX)
+
 # MKL settings
 if(DEFINED ENV{MKLROOT})
     set(MKL_ROOT $ENV{MKLROOT})
@@ -34,6 +37,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/include
     ${ARMADILLO_INCLUDE_DIRS}
     ${MKL_INCLUDE_DIR}
+    ${HDF5_INCLUDE_DIRS}
 )
 
 # Source files
@@ -52,6 +56,8 @@ target_link_libraries(dqmc
     ${MPI_CXX_LIBRARIES}
     ${ARMADILLO_LIBRARIES}
     ${MKL_LIBRARIES}
+    ${HDF5_LIBRARIES}
+    ${HDF5_HL_LIBRARIES}
 )
 
 # Set Armadillo to use MKL

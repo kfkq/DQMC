@@ -19,8 +19,8 @@ double calculate_density(const std::vector<GF>&  greens, const Lattice& lat)
     int lat_size = lat.size(); 
     int n_sites  = lat.n_sites();
 
-    GreenFunc Gup = greens[0].G00;
-    GreenFunc Gdn = greens[0].G00; 
+    GreenFunc Gup = greens[0].Gtt[0];
+    GreenFunc Gdn = greens[0].Gtt[0]; 
     GreenFunc Gup_c = arma::eye(n_sites, n_sites) - Gup;
     GreenFunc Gdn_c = arma::eye(n_sites, n_sites) - Gdn;
 
@@ -47,8 +47,8 @@ double calculate_doubleOccupancy(const std::vector<GF>&  greens, const Lattice& 
     int lat_size = lat.size(); 
     int n_sites  = lat.n_sites();
 
-    GreenFunc Gup = greens[0].G00;
-    GreenFunc Gdn = greens[0].G00; 
+    GreenFunc Gup = greens[0].Gtt[0];
+    GreenFunc Gdn = greens[0].Gtt[0]; 
     GreenFunc Gup_c = arma::eye(n_sites, n_sites) - Gup;
     GreenFunc Gdn_c = arma::eye(n_sites, n_sites) - Gdn;
 
@@ -80,8 +80,8 @@ double calculate_swavePairing(const std::vector<GF>&  greens, const Lattice& lat
     int lat_size = lat.size(); 
     int n_sites  = lat.n_sites();
 
-    GreenFunc Gup = greens[0].G00;
-    GreenFunc Gdn = greens[0].G00; 
+    GreenFunc Gup = greens[0].Gtt[0];
+    GreenFunc Gdn = greens[0].Gtt[0]; 
     GreenFunc Gup_c = arma::eye(n_sites, n_sites) - Gup;
     GreenFunc Gdn_c = arma::eye(n_sites, n_sites) - Gdn;
 
@@ -98,12 +98,12 @@ double calculate_swavePairing(const std::vector<GF>&  greens, const Lattice& lat
 
 Matrix calculate_densityCorr(const std::vector<GF>& greens, const Lattice& lat) {
     
-    const int n_sites = greens[0].G00.n_rows;
+    const int n_sites = greens[0].Gtt[0].n_rows;
 
     // Compute average density
     double n_avg = 0.0;
     for (int i = 0; i < n_sites; ++i) {
-        n_avg += 2.0 * (1.0 - greens[0].G00(i,i));
+        n_avg += 2.0 * (1.0 - greens[0].Gtt[0](i,i));
     }
     n_avg /= n_sites;
 
@@ -113,13 +113,13 @@ Matrix calculate_densityCorr(const std::vector<GF>& greens, const Lattice& lat) 
 
     // Compute <n_i n_j> - <n_i><n_j>
     for (int i = 0; i < n_sites; ++i) {
-        double n_i = 2.0 * (1.0 - greens[0].G00(i,i));
+        double n_i = 2.0 * (1.0 - greens[0].Gtt[0](i,i));
         for (int j = 0; j < n_sites; ++j) {
-            double n_j = 2.0 * (1.0 - greens[0].G00(j,j));
+            double n_j = 2.0 * (1.0 - greens[0].Gtt[0](j,j));
             
             // Connected correlation: <n_i n_j> - <n_i><n_j>
             double density_product = n_i * n_j;
-            double exchange_term = 2.0 * (1.0 - greens[0].G00(j,i)) * greens[0].G00(i,j);
+            double exchange_term = 2.0 * (1.0 - greens[0].Gtt[0](j,i)) * greens[0].Gtt[0](i,j);
             
             ninj_conn(i,j) = density_product + exchange_term - n_avg * n_avg;
         }
@@ -135,8 +135,8 @@ arma::cube calculate_greenTau(const std::vector<GF>& greens, const Lattice& lat)
     int n_sites  = lat.n_sites();
     int n_tau = greens[0].Gtt.size();
 
-    GreenFunc Gup = greens[0].G00;
-    GreenFunc Gdn = greens[0].G00; 
+    GreenFunc Gup = greens[0].Gtt[0];
+    GreenFunc Gdn = greens[0].Gtt[0]; 
     GreenFunc Gup_c = arma::eye(n_sites, n_sites) - Gup;
     GreenFunc Gdn_c = arma::eye(n_sites, n_sites) - Gdn;
 
@@ -161,8 +161,8 @@ arma::cube calculate_doublonTau(const std::vector<GF>& greens, const Lattice& la
     int n_sites  = lat.n_sites();
     int n_tau = greens[0].Gtt.size();
 
-    GreenFunc Gup = greens[0].G00;
-    GreenFunc Gdn = greens[0].G00; 
+    GreenFunc Gup = greens[0].Gtt[0];
+    GreenFunc Gdn = greens[0].Gtt[0]; 
     GreenFunc Gup_c = arma::eye(n_sites, n_sites) - Gup;
     GreenFunc Gdn_c = arma::eye(n_sites, n_sites) - Gdn;
 
@@ -191,8 +191,8 @@ arma::cube calculate_currxxTau(const std::vector<GF>& greens, const Lattice& lat
     int n_sites  = lat.n_sites();
     int n_tau = greens[0].Gtt.size();
 
-    GreenFunc G00up = greens[0].G00;
-    GreenFunc G00dn = greens[0].G00; 
+    GreenFunc G00up = greens[0].Gtt[0];
+    GreenFunc G00dn = greens[0].Gtt[0]; 
     GreenFunc G00up_c = arma::eye(n_sites, n_sites) - G00up;
     GreenFunc G00dn_c = arma::eye(n_sites, n_sites) - G00dn;
 
