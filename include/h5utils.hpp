@@ -58,11 +58,18 @@ namespace hdf5 {
         hid_t dataset_id = H5Dcreate2(file_id, dataset_name.c_str(), H5T_NATIVE_DOUBLE, 
                                       dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         
-        // Create a temporary contiguous copy of the cube data
-        arma::cube temp_cube = cube;
+        // Create a transposed version of the cube for row-major interpretation
+        arma::cube transposed_cube(cube.n_slices, cube.n_cols, cube.n_rows);
+        for (arma::uword i = 0; i < cube.n_rows; ++i) {
+            for (arma::uword j = 0; j < cube.n_cols; ++j) {
+                for (arma::uword k = 0; k < cube.n_slices; ++k) {
+                    transposed_cube(k, j, i) = cube(i, j, k);
+                }
+            }
+        }
         
         herr_t status = H5Dwrite(dataset_id, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, 
-                                 H5P_DEFAULT, temp_cube.memptr());
+                                 H5P_DEFAULT, transposed_cube.memptr());
         
         if (status < 0) {
             H5Dclose(dataset_id);
@@ -83,13 +90,20 @@ namespace hdf5 {
         hid_t dataset_id = H5Dcreate2(file_id, dataset_name.c_str(), H5T_NATIVE_DOUBLE, 
                                       dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         
-        // Create a temporary contiguous copy of the cube data
-        arma::cx_cube temp_cube = cube;
+        // Create a transposed version of the cube for row-major interpretation
+        arma::cx_cube transposed_cube(cube.n_slices, cube.n_cols, cube.n_rows);
+        for (arma::uword i = 0; i < cube.n_rows; ++i) {
+            for (arma::uword j = 0; j < cube.n_cols; ++j) {
+                for (arma::uword k = 0; k < cube.n_slices; ++k) {
+                    transposed_cube(k, j, i) = cube(i, j, k);
+                }
+            }
+        }
         
         // Convert complex data to interleaved real/imag format for writing
-        std::vector<double> temp_data(cube.n_elem * 2);
-        const std::complex<double>* cube_data = temp_cube.memptr();
-        for (size_t i = 0; i < cube.n_elem; ++i) {
+        std::vector<double> temp_data(transposed_cube.n_elem * 2);
+        const std::complex<double>* cube_data = transposed_cube.memptr();
+        for (size_t i = 0; i < transposed_cube.n_elem; ++i) {
             temp_data[2*i] = cube_data[i].real();     // Real part
             temp_data[2*i + 1] = cube_data[i].imag(); // Imaginary part
         }
