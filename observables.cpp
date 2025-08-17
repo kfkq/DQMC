@@ -5,6 +5,50 @@ using Matrix = arma::mat;
 
 namespace Observables {
 
+double calculate_N(const std::vector<GF>& greens, const Lattice& lat) {
+    int Lx = lat.Lx();
+    int Ly = lat.Ly();
+    int lat_size = lat.size(); 
+    int n_sites  = lat.n_sites();
+
+    GreenFunc Gup = greens[0].Gtt[0];
+    GreenFunc Gdn = greens[0].Gtt[0]; 
+    GreenFunc Gup_c = arma::eye(n_sites, n_sites) - Gup;
+    GreenFunc Gdn_c = arma::eye(n_sites, n_sites) - Gdn;
+
+    double N = 0.0;
+    for (int i = 0; i < n_sites; i++) {
+        N += Gup_c(i,i) + Gdn_c(i,i);
+    }
+    return N;
+}
+
+double calculate_N2(const std::vector<GF>& greens, const Lattice& lat) {
+    const int n_sites = greens[0].Gtt[0].n_rows;
+    const auto& G00 = greens[0].Gtt[0];
+
+    double N_squared = 0.0;
+
+    // We need to calculate Σ_{i,j} <n_i n_j>
+    // <n_i n_j> = <n_i><n_j> + δ_{ij}(<n_i> - 2<n_{i↑}n_{i↓}>) - 2 * |G_{ij}|^2
+    // For attractive Hubbard, G_up = G_down, so <n_i> = 2(1 - G_{ii})
+    // and <n_i n_j> => <n_i><n_j> + 2 * (1 - G_{ji}) * G_{ij}
+    
+    for (int i = 0; i < n_sites; ++i) {
+        double n_i = 2.0 * (1.0 - G00(i, i));
+        for (int j = 0; j < n_sites; ++j) {
+            double n_j = 2.0 * (1.0 - G00(j, j));
+            
+            double density_product = n_i * n_j;
+            double exchange_term = 2.0 * (1.0 - G00(j, i)) * G00(i, j);
+            
+            N_squared += density_product + exchange_term;
+        }
+    }
+
+    return N_squared;
+}
+
 double calculate_density(const std::vector<GF>&  greens, const Lattice& lat) 
 {
     /*
@@ -32,7 +76,6 @@ double calculate_density(const std::vector<GF>&  greens, const Lattice& lat)
 
     return density;
 }
-
 
 double calculate_doubleOccupancy(const std::vector<GF>&  greens, const Lattice& lat) 
 {

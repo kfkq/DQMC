@@ -61,6 +61,11 @@ namespace model {
             int nt() const { return nt_; }
             int ns() const { return ns_; }
             int n_flavor() const { return n_flavor_; }
+            double dtau() const { return dtau_; }
+
+            void set_mu(double new_mu, const Lattice& lat);
+            void set_alpha(double U);
+            void set_dtau(double dtau, const Lattice& lat);
 
             // Functions that will be used in the simulation
             Matrix calc_B(int t, int nfl);

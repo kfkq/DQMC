@@ -63,7 +63,7 @@ namespace model {
     }
 
     void HubbardAttractiveU::init_GHQfields() {
-        alpha_ = std::sqrt(0.5 * std::abs(U_) * dtau_); // Note the sqrt!
+        set_alpha(U_); // Note the sqrt!
         
         gamma_.set_size(4);
         eta_.set_size(4);
@@ -88,6 +88,24 @@ namespace model {
                 fields_(t, i) = rng_.rand_GHQField();
             }
         }
+    }
+
+    void HubbardAttractiveU::set_alpha(double U) {
+        U_ = U;
+        alpha_ = std::sqrt(0.5 * std::abs(U_) * dtau_);
+    }
+
+    void HubbardAttractiveU::set_mu(double new_mu, const Lattice& lat) {
+        mu_ = new_mu;
+        // Recalculate any matrices that depend on mu
+        init_expK(lat);
+    }
+
+    void HubbardAttractiveU::set_dtau(double dtau, const Lattice& lat) {
+        dtau_ = dtau;
+
+        set_alpha(U_);
+        init_expK(lat);
     }
 
     /* --------------------------------------------------------------------------------------------- 

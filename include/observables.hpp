@@ -5,6 +5,8 @@
 #include <armadillo>
 
 namespace Observables {
+    double calculate_N(const std::vector<GF>& greens, const Lattice& lat);
+    double calculate_N2(const std::vector<GF>& greens, const Lattice& lat);
     double calculate_density(const std::vector<GF>& greens, const Lattice& lat);
     double calculate_doubleOccupancy(const std::vector<GF>& greens, const Lattice& lat);
     double calculate_swavePairing(const std::vector<GF>& greens, const Lattice& lat);

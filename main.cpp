@@ -4,6 +4,7 @@
 #include "model.hpp" 
 #include "measurementh5.hpp"
 #include "observables.hpp"
+#include "mutuner.hpp"
 
 #include "utility.hpp"
 #include <iostream>
@@ -57,14 +58,26 @@ int main(int argc, char** argv) {
     double beta = params.getDouble("simulation", "beta");
     int nt = params.getInt("simulation", "nt");
     double dtau = beta / nt;
-
     int n_stab = params.getInt("simulation", "n_stab");
-
     int n_sweeps = params.getInt("simulation", "n_sweeps");
     int n_therms = params.getInt("simulation", "n_therms");
     int n_bins = params.getInt("simulation", "n_bins");
-
     bool isUnequalTime = params.getBool("simulation", "isMeasureUnequalTime", false);
+
+    // annealing parameters
+    bool simulated_annealing = params.getBool("annealing", "enabled", false);
+    double hot_beta = params.getDouble("annealing", "hot_beta", 1.0);
+    double annealing_maxsweeps = params.getInt("annealing", "max_sweeps", 5000);
+
+    // mutuner parameters
+    bool tuner_enabled = params.getBool("mutuner", "enabled", false);
+    double target_density = params.getDouble("mutuner", "target_density", 1.0);
+    double conv_tolerance = params.getDouble("mutuner", "convergence_tolerance", 1e-4);
+    int tuner_sweeps = params.getInt("mutuner", "max_tuner_sweeps", 1000);
+    double memory_fraction = params.getDouble("mutuner", "memory_fraction", 0.5);
+    double energy_scale = params.getDouble("mutuner", "energy_scale", t);
+    int min_sweeps_conv = params.getInt("mutuner", "min_sweeps", 100);
+    int fixed_window_size = params.getInt("mutuner", "fixed_window_size", 0);
 
     // Lattice creation
     std::array<double,2> a1{{1.0, 0.0}};
@@ -101,6 +114,9 @@ int main(int argc, char** argv) {
 
     // Model initialization
     auto hubbard = model::HubbardAttractiveU(lat, t, U, mu, dtau, nt, rng);
+    if (simulated_annealing) {
+        hubbard.set_dtau(hot_beta/nt, lat);
+    }
     
     // model dependent DQMC factorization. Hubbard model are factorized by spin index.
     int n_flavor = hubbard.n_flavor(); 
@@ -152,14 +168,143 @@ int main(int argc, char** argv) {
 
     // thermalization
     const auto t0_therm = std::chrono::steady_clock::now();
-    for (int i = 0; i < n_therms; ++i) {
-        sim.sweep_0_to_beta(greens, propagation_stacks);
-        sim.sweep_beta_to_0(greens, propagation_stacks);
+
+    utility::io::print_info("Starting thermalization...\n");
+    if (simulated_annealing) {
+        double R = std::exp(std::log(beta/hot_beta) / annealing_maxsweeps);
+
+        double curr_beta = hubbard.dtau() * nt;
+        
+        int sweep_beta = 0;
+        bool need_tuner = true;
+        while (sweep_beta < annealing_maxsweeps) {
+            sim.sweep_0_to_beta(greens, propagation_stacks);
+            sim.sweep_beta_to_0(greens, propagation_stacks);
+
+            double density_old  = Observables::calculate_N(greens, lat) / lat.n_sites();
+            bool tuner_converged = false;
+            if (tuner_enabled && need_tuner) {
+                MuTuner tuner(target_density, curr_beta, lat.n_sites(), energy_scale, 
+                        mu, memory_fraction, fixed_window_size, conv_tolerance, min_sweeps_conv);
+                int current_sweep = 0;
+                while (!tuner_converged && current_sweep < tuner_sweeps) {
+
+                    // Perform one full DQMC sweep (forward and backward)
+                    for (int i = 0; i < 50; ++i) {
+                        sim.sweep_0_to_beta(greens, propagation_stacks);
+                        sim.sweep_beta_to_0(greens, propagation_stacks);
+                    }
+
+                    // Measure the current density
+                    double current_N  = Observables::calculate_N(greens, lat);
+                    double current_N2 = Observables::calculate_N2(greens, lat);
+
+                    // Update the tuner and get the new chemical potential
+                    double new_mu = tuner.update(current_N, current_N2);
+
+                    // Update the chemical potential in the model
+                    hubbard.set_mu(new_mu, lat);
+
+                    // reinitialize green's function and stacks due to change of parameters
+                    for (int nfl = 0; nfl < n_flavor; nfl++) {
+                        propagation_stacks[nfl] = sim.init_stacks(nfl);
+                        greens[nfl]             = sim.init_greenfunctions(propagation_stacks[nfl]);
+                    }
+
+                    // Print status (optional but highly recommended)
+                    //if ((current_sweep + 1) % 10 == 0) { // Print every 10 sweeps
+                    //    tuner.print_status();
+                    //}
+                    tuner_converged = tuner.is_converged();
+                    current_sweep++;
+                }
+
+                if (tuner_converged) {
+                    utility::io::print_info("MuTuner converged after ", current_sweep, " sweeps.\n");
+                } else {
+                    utility::io::print_info("MuTuner did not converge after max ", tuner_sweeps, " sweeps.\n");
+                }
+            }
+            tuner_converged = false;
+
+            double density_new  = Observables::calculate_N(greens, lat) / lat.n_sites();
+            utility::io::print_info("density = ", density_new, "\n");
+            
+
+            double dtau_new = 1.0 * std::pow(R, (sweep_beta+1)) / nt;
+            hubbard.set_dtau(dtau_new, lat);
+
+            // reinitialize green's function and stacks due to change of parameters
+            for (int nfl = 0; nfl < n_flavor; nfl++) {
+                propagation_stacks[nfl] = sim.init_stacks(nfl);
+                greens[nfl]             = sim.init_greenfunctions(propagation_stacks[nfl]);
+            }
+
+            sweep_beta++;
+        }
+    } else if (tuner_enabled) {
+        MuTuner tuner(target_density, beta, lat.n_sites(), energy_scale, 
+                mu, memory_fraction, fixed_window_size, conv_tolerance, min_sweeps_conv);
+
+        int current_sweep = 0;
+        while (!tuner.is_converged() && current_sweep < tuner_sweeps) {
+            // Perform 200 DQMC sweep (forward and backward)
+            for (int i = 0; i < 50; ++i) {
+                sim.sweep_0_to_beta(greens, propagation_stacks);
+                sim.sweep_beta_to_0(greens, propagation_stacks);
+            }
+
+            // Measure the current density
+            double current_N  = Observables::calculate_N(greens, lat);
+            double current_N2 = Observables::calculate_N2(greens, lat);
+
+            // Update the tuner and get the new chemical potential
+            double new_mu = tuner.update(current_N, current_N2);
+
+            // Update the chemical potential in the model
+            hubbard.set_mu(new_mu, lat);
+
+            //reinitialize green's function and stacks due to change of parameters
+            for (int nfl = 0; nfl < n_flavor; nfl++) {
+               propagation_stacks[nfl] = sim.init_stacks(nfl);
+               greens[nfl]             = sim.init_greenfunctions(propagation_stacks[nfl]);
+            }
+
+            // Print status (optional but highly recommended)
+            //if ((current_sweep + 1) % 10 == 0) { // Print every 10 sweeps
+            //   tuner.print_status();
+            //}
+            
+            current_sweep++;
+        }
+
+        if (tuner.is_converged()) {
+            utility::io::print_info("MuTuner converged after ", current_sweep, " sweeps.\n");
+            hubbard.set_mu(0.0, lat);
+
+            //reinitialize green's function and stacks due to change of parameters
+            for (int nfl = 0; nfl < n_flavor; nfl++) {
+               propagation_stacks[nfl] = sim.init_stacks(nfl);
+               greens[nfl]             = sim.init_greenfunctions(propagation_stacks[nfl]);
+            }
+        } else {
+            utility::io::print_info("MuTuner did not converge after max ", tuner_sweeps, " sweeps.\n");
+        }
+    } else {
+        utility::io::print_info("Starting fixed thermalization...\n");
+        for (int i = 0; i < n_therms; ++i) {
+            sim.sweep_0_to_beta(greens, propagation_stacks);
+            sim.sweep_beta_to_0(greens, propagation_stacks);
+        }
     }
     const auto dt_therm = std::chrono::duration<double>(
         std::chrono::steady_clock::now() - t0_therm).count();
     
     utility::io::print_info("Thermalization done in ", dt_therm, " seconds\n");
+
+    // --- SYNCHRONIZATION POINT ---
+    MPI_Barrier(MPI_COMM_WORLD);
+    // ---------------------------
 
     // measurement sweeps
     double local_time = 0.0;
