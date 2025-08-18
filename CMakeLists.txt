@@ -4,7 +4,19 @@ project(dqmc CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -ffast-math") 
+# Set C++ compiler to Intel if available
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
+    # Using Intel oneAPI compiler (icx)
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -ipo -xHost -no-prec-div -fp-model fast=2") 
+    
+    # -mauto-arch=CORE-AVX2,CORE-AVX512,COMMON-AVX512: Generates code that can run on processors with these instruction sets
+    # -fargument-noalias: Assumes that function pointer arguments do not alias with other pointer arguments (optimization)
+    list(APPEND CMAKE_CXX_FLAGS_RELEASE "-mauto-arch=CORE-AVX2,CORE-AVX512,COMMON-AVX512")
+    list(APPEND CMAKE_CXX_FLAGS_RELEASE "-fargument-noalias")
+else()
+    # Fallback for other compilers (like GCC)
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -ffast-math")
+endif()
 
 # Find MPI
 find_package(MPI REQUIRED)
@@ -13,7 +25,14 @@ find_package(MPI REQUIRED)
 find_package(Armadillo REQUIRED)
 
 # Find HDF5
-find_package(HDF5 REQUIRED COMPONENTS CXX)
+# Check if HDF5_ROOT is set for local installation
+if(DEFINED ENV{HDF5_ROOT})
+    set(HDF5_ROOT $ENV{HDF5_ROOT})
+    message(STATUS "Using local HDF5 installation at: ${HDF5_ROOT}")
+else()
+    # Try to find HDF5 in standard paths
+    find_package(HDF5 REQUIRED COMPONENTS CXX)
+endif()
 
 # MKL settings
 if(DEFINED ENV{MKLROOT})

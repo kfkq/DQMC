@@ -78,6 +78,7 @@ int main(int argc, char** argv) {
     double energy_scale = params.getDouble("mutuner", "energy_scale", t);
     int min_sweeps_conv = params.getInt("mutuner", "min_sweeps", 100);
     int fixed_window_size = params.getInt("mutuner", "fixed_window_size", 0);
+    bool metastable = params.getBool("mutuner", "metastable", false);
 
     // Lattice creation
     std::array<double,2> a1{{1.0, 0.0}};
@@ -271,16 +272,18 @@ int main(int argc, char** argv) {
             }
 
             // Print status (optional but highly recommended)
-            //if ((current_sweep + 1) % 10 == 0) { // Print every 10 sweeps
-            //   tuner.print_status();
-            //}
+            if ((current_sweep + 1) % 10 == 0) { // Print every 10 sweeps
+               tuner.print_status();
+            }
             
             current_sweep++;
         }
 
         if (tuner.is_converged()) {
             utility::io::print_info("MuTuner converged after ", current_sweep, " sweeps.\n");
-            hubbard.set_mu(0.0, lat);
+            if (metastable) {
+                hubbard.set_mu(0.0, lat);
+            }
 
             //reinitialize green's function and stacks due to change of parameters
             for (int nfl = 0; nfl < n_flavor; nfl++) {
@@ -297,14 +300,15 @@ int main(int argc, char** argv) {
             sim.sweep_beta_to_0(greens, propagation_stacks);
         }
     }
-    const auto dt_therm = std::chrono::duration<double>(
-        std::chrono::steady_clock::now() - t0_therm).count();
-    
-    utility::io::print_info("Thermalization done in ", dt_therm, " seconds\n");
 
     // --- SYNCHRONIZATION POINT ---
     MPI_Barrier(MPI_COMM_WORLD);
     // ---------------------------
+
+    const auto dt_therm = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - t0_therm).count();
+    
+    utility::io::print_info("Thermalization done in ", dt_therm, " seconds\n");
 
     // measurement sweeps
     double local_time = 0.0;
