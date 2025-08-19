@@ -81,6 +81,11 @@ namespace model {
         eta_(2) =  std::sqrt(2.0 * (3.0 - s6));
         eta_(3) =  std::sqrt(2.0 * (3.0 + s6));
 
+        proposal_ = {{1, 2, 3},
+                     {0, 2, 3},
+                     {0, 1, 3},
+                     {0, 1, 2}};
+
         fields_.set_size(nt_, ns_);
         // Fill with random {0, 1, 2, 3}
         for(int t = 0; t < nt_; ++t) {
@@ -161,11 +166,9 @@ namespace model {
             
             // 1. Propose a new state
             int old_field = fields_(l, i);
-            int new_field;
-            do {
-                new_field = rng_.rand_GHQField();
-            } while (new_field == old_field); // make sure new field != old field
-
+            int propose = rng_.rand_proposeGHQField();
+            int new_field = proposal_(old_field, propose);
+            
             // 2. total acc_ratio = gamma_R * bosonic_R * fermionic_R
             double gamma_ratio = gamma_(new_field) / gamma_(old_field);
 

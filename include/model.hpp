@@ -42,6 +42,7 @@ namespace model {
             arma::vec gamma_;
             arma::vec eta_;
             IMatrix fields_;
+            IMatrix proposal_;
             
             // Random number generator
             utility::random& rng_;

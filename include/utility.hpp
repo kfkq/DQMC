@@ -69,6 +69,11 @@ namespace utility {
             std::uniform_int_distribution<int> dist(0,3);
             return dist(generator_);
         }
+
+        int rand_proposeGHQField() {
+            std::uniform_int_distribution<int> dist(0,2);
+            return dist(generator_);
+        }
         
         // Getter for the generator (to pass to other classes)
         std::mt19937& get_generator() {
