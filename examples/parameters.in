@@ -9,28 +9,23 @@ t =  1.0                        # Hopping parameters
 mu = 0.0                       # Chemical potential
 
 [simulation]
-beta = 3.0                      # Inverse temperature
-nt = 60                        # Number of Imaginary time step
+beta = 2.0                      # Inverse temperature
+nt = 80                        # Number of Imaginary time step
 n_therms = 0                 # Number of thermalization sweeps
-n_sweeps = 20                   # Number of Monte Carlo sweeps
-n_bins = 200                    # Number of total bins. each bin contain average observable after n_sweeps 
-n_stab = 5                      # Length of numerical stabilization in imaginary time propagation
+n_sweeps = 1                   # Number of Monte Carlo sweeps
+n_bins = 5000                    # Number of total bins. each bin contain average observable after n_sweeps 
+n_stab = 10                      # Length of numerical stabilization in imaginary time propagation
 symm = false
 isMeasureUnequalTime = false     # whether to measure unequaltime
 
 [mutuner]
-enabled = true                  # Enable the dynamical mu tuning
+enabled = false                  # Enable the dynamical mu tuning
 target_density = 0.5           # The desired particle density <n>
 convergence_tolerance = 1e-4    # Stop when |<n> - n_target| < tolerance
-max_tuner_sweeps = 5000         # Safety stop for the tuning process
-memory_fraction = 0.5           # How much of the history to discharge
+max_tuner_sweeps = 10000         # Safety stop for the tuning process
+memory_fraction = 0.0           # How much of the history to discharge
 metastable = false
-fixed_window_size = 10
+fixed_window_size = 1
 energy_scale = 0.1              # A characteristic energy of the model, usually t
-min_sweeps = 100                # Minimum number of sweeps before checking convergence
-
-[annealing]
-enabled = false                  # Enable the dynamical mu tuning
-hot_beta = 1.0
-max_sweeps = 50
+min_sweeps = 5000                # Minimum number of sweeps before checking convergence
 
