@@ -113,20 +113,20 @@ def main(output_dir):
     # =========================================================================
     parameter_space = {
         # Lattice
-        'Lx': [6],
-        'Ly': [6],
+        'Lx': [8],
+        'Ly': [8],
         # Hubbard
         'U': [6.0],
         't': [1.0],
-        'mu': [0.0], # This is the TARGET mu
+        'mu': [-0.4], # This is the TARGET mu
         # Simulation
         'beta': [5.0], # This is the TARGET beta
         'nt': [100],
-        'n_therms': [5000],
+        'n_therms': [0],
         'n_sweeps': [50],
-        'n_bins': [200],
+        'n_bins': [500],
         'n_stab': [5],
-        'isMeasureUnequalTime': [True],
+        'isMeasureUnequalTime': [False],
         # Parallel Tempering (Special Parameter)
         # This parameter expects a list of configurations. Use `None` for a standard run.
         'parallel_tempering': [
@@ -134,8 +134,8 @@ def main(output_dir):
             {      # A PT configuration
                 "enabled": True,
                 "exchange_freq": 10,
-                "betas": [5.0, 4.2, 3.5, 3.0], # Target (rank 0) is first
-                "mus":   [-0.1, -0.1, -0.1, -0.1] # Target (rank 0) is first
+                "betas": [5.0, 5.0, 2.0, 1.0], # Target (rank 0) is first
+                "mus":   [-0.4, -0.4, -0.48, -0.71] # Target (rank 0) is first
             }
         ]
     }

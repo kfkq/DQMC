@@ -190,14 +190,18 @@ namespace linalg {
             return LDR(F1.L() * qr_decomp.L(), qr_decomp.d(), qr_decomp.R() * F2.R());
         }
 
-        static GreenFunc inv_eye_plus_ldr(const LDR& F) {
+        static GreenFunc inv_eye_plus_ldr(const LDR& F, double& log_det_M_out) {
             /*
             / Computes G = [I + F]⁻¹ in a numerically stable way, where F = LDR.
             / This is used for calculating the equal-time Green's function G(0,0) or G(β,β).
             /
             / The stable formula, inspired by the ALF library, is:
-            /   G = (R⁻¹ D_large⁻¹) * M⁻¹
-            /   where M = (R⁻¹ D_large⁻¹) + (L * D_small)
+            /   G = (R⁻¹ D_large⁻¹) * M_inv
+            /   where M_inv = (R⁻¹ D_large⁻¹) + (L * D_small)
+            /
+            / This function also calculates log|det(I + F)| and stores it in log_det_M_out.
+            /   det(I + F) = det(R) * det(D_large) * det(M_inv)
+            /   log|det(I + F)| = log|det(R)| + log|det(D_large)| + log|det(M_inv)|
             */
             
             const int n_sites = F.n_rows();
@@ -229,6 +233,16 @@ namespace linalg {
             // M is constructed by adding the two well-conditioned terms. This matrix M
             // is much more numerically stable to invert than the original (I + LDR).
             Matrix M = R_inv_D_large_inv + L_D_small;
+
+            // --- Calculate log|det(I + F)| ---
+            // log|det(R)| is 0 for our decomposition.
+            // log|det(D_large)| = sum(log(D_large_ii))
+            double log_det_D_large = arma::sum(arma::log(D_large));
+            
+            // log|det(M)|
+            arma::cx_double log_det_M_complex = arma::log_det(M);
+            
+            log_det_M_out = log_det_D_large + log_det_M_complex.real();
             
             // --- Step 5: Solve for the final Green's function G ---
             // We want to compute G = (R⁻¹ * D_large⁻¹) * M⁻¹.

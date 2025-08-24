@@ -58,10 +58,14 @@ namespace model {
 
             // Getters
             const Matrix& expK() const { return expK_; }
-            const IMatrix& fields() const { return fields_; }
             int nt() const { return nt_; }
             int ns() const { return ns_; }
             int n_flavor() const { return n_flavor_; }
+            const IMatrix& get_fields() const { return fields_; }
+            void set_fields(const IMatrix& new_fields) { fields_ = new_fields; }
+            const arma::vec& get_gamma() const { return gamma_; }
+            const arma::vec& get_eta() const { return eta_; }
+            double get_alpha() const { return alpha_; }
 
             // Functions that will be used in the simulation
             Matrix calc_B(int t, int nfl);

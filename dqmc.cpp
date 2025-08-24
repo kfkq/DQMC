@@ -56,8 +56,9 @@ GF DQMC::init_greenfunctions(linalg::LDRStack& propagation_stack) {
     greens.Gtt.resize(nt+1);
     greens.Gt0.resize(nt+1);
     greens.G0t.resize(nt+1);
+    greens.log_det_M = 0.0;
 
-    greens.Gtt[0] = linalg::LDR::inv_eye_plus_ldr(propagation_stack[0]);
+    greens.Gtt[0] = linalg::LDR::inv_eye_plus_ldr(propagation_stack[0], greens.log_det_M);
 
     return greens;
 }
@@ -137,7 +138,7 @@ void DQMC::stabilize_GF_forward(GF& greens, linalg::LDRStack& propagation_stack,
     
     if (l == model_.nt() - 1) { // at last propagation
         //  G(β, β) = G(0,0) = [I + B(β,0)]^{-1}
-        greens.Gtt[l+1] = linalg::LDR::inv_eye_plus_ldr(propagation_stack[i_stack]);
+        greens.Gtt[l+1] = linalg::LDR::inv_eye_plus_ldr(propagation_stack[i_stack], greens.log_det_M);
     } else {
         // calculate 
         greens.Gtt[l+1] = linalg::LDR::inv_eye_plus_ldr_mul_ldr(
@@ -198,7 +199,7 @@ void DQMC::stabilize_GF_backward(GF& greens, linalg::LDRStack& propagation_stack
     
     if (l == 0) { // at beginning of propagation
         //  G(0,0) = [I + B(β,0)]^{-1}
-        greens.Gtt[l] = linalg::LDR::inv_eye_plus_ldr(propagation_stack[i_stack]);
+        greens.Gtt[l] = linalg::LDR::inv_eye_plus_ldr(propagation_stack[i_stack], greens.log_det_M);
     } else {
         // calculate 
         greens.Gtt[l] = linalg::LDR::inv_eye_plus_ldr_mul_ldr(
@@ -247,7 +248,7 @@ void DQMC::propagate_Bt0_Bbt(linalg::LDR& Bt0, linalg::LDR& Bbt,
 void DQMC::stabilize_unequalTime(GF& greens, linalg::LDR& Bt0, linalg::LDR& Bbt, int l) {
     if (l == model_.nt() - 1) { // at last propagation
         //  G(β, β) = G(0,0) = [I + B(β,0)]^{-1}
-        greens.Gtt[l+1] = linalg::LDR::inv_eye_plus_ldr(Bt0);
+        greens.Gtt[l+1] = linalg::LDR::inv_eye_plus_ldr(Bt0, greens.log_det_M);
 
         //  G(β,0) = I - G(0,0)
         greens.Gt0[l+1] = linalg::eye_minus_mat(greens.Gtt[l+1]);
@@ -268,6 +269,52 @@ void DQMC::stabilize_unequalTime(GF& greens, linalg::LDR& Bt0, linalg::LDR& Bbt,
 /
 -------------------------------------------------------------------------------- */
 
+double DQMC::calculate_action(const std::vector<GF>& greens) {
+    /*
+    / Calculates the total action S = -log(W) for the current HS field configuration.
+    / The weight W is given by:
+    /   W = (Π_{l,i} γ) * exp(-S_bosonic) * Π_flavor det(M_flavor)
+    /
+    / The total action S is therefore the sum of three components:
+    /   S = S_gamma + S_bosonic + S_fermionic
+    /
+    / 1. S_fermionic = -Σ_flavor log|det(M_flavor)|
+    /    We sum the stored log_det_M from each GF object.
+    /
+    / 2. S_bosonic = Σ_{l,i} α * η(s_{l,i})
+    /    This is the exponential part of the HS transform.
+    /
+    / 3. S_gamma = -Σ_{l,i} log(γ(s_{l,i}))
+    */
+
+    // 1. Fermionic Action
+    double s_fermionic = 0.0;
+    for (const auto& gf : greens) {
+        s_fermionic -= gf.log_det_M;
+    }
+
+    // this shouldn't be here, but for the moment only for attractive hubbard
+    if (greens.size() == 1) {
+        s_fermionic *= 2.0;
+    }
+
+    // 2. Bosonic and Gamma Action
+    const auto& fields = model_.get_fields();
+    const auto& gamma = model_.get_gamma();
+    const auto& eta = model_.get_eta();
+    const double alpha = model_.get_alpha();
+
+    double s_bosonic = 0.0;
+    double s_gamma = 0.0;
+
+    for (arma::uword i = 0; i < fields.n_elem; ++i) {
+        int field_val = fields(i);
+        s_bosonic += alpha * eta(field_val);
+        s_gamma   -= std::log(gamma(field_val));
+    }
+
+    return s_fermionic + s_bosonic + s_gamma;
+}
 
 double DQMC::check_error(const Matrix& Gtt_temp, const Matrix& Gtt) {
     /*

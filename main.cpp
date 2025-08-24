@@ -4,12 +4,15 @@
 #include "model.hpp" 
 #include "measurementh5.hpp"
 #include "observables.hpp"
+#include "updates.hpp"
 
-#include "utility.hpp"
 #include <iostream>
 #include <iomanip>
 #include <chrono>
 #include <string>
+#include <vector>
+#include <numeric>
+#include "utility.hpp" // Moved for clarity, and needed for parameter loading
 
 #include <mpi.h>
 
@@ -40,8 +43,23 @@ int main(int argc, char** argv) {
     utility::random rng;
     rng.set_seed(std::time(nullptr) + rank);
 
-    // parse parameters file
+    // --- Parameter Loading Logic ---
+    // All ranks load the main parameters.in file.
     utility::parameters params("parameters.in");
+
+    // If PT is enabled, ranks > 0 must load an additional override file.
+    bool use_pt = params.getBool("parallel_tempering", "enabled", false);
+    if (use_pt && rank > 0) {
+        std::string override_file = "parallel_tempering/parameters_" + std::to_string(rank) + ".in";
+        if (utility::io::file_exists(override_file)) {
+            utility::parameters override_params(override_file);
+            params.override_with(override_params);
+        } else {
+            std::cerr << "FATAL ERROR: Parallel tempering is enabled, but the override file for rank "
+                << rank << " (" << override_file << ") was not found." << std::endl;
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
+    }
 
     // lattice parameters
     std::string latt_type = params.getString("lattice", "type");
@@ -61,8 +79,8 @@ int main(int argc, char** argv) {
     int n_stab = params.getInt("simulation", "n_stab");
 
     int n_sweeps = params.getInt("simulation", "n_sweeps");
-    int n_therms = params.getInt("simulation", "n_therms");
     int n_bins = params.getInt("simulation", "n_bins");
+    int total_sweeps = n_bins * n_sweeps;
 
     bool isUnequalTime = params.getBool("simulation", "isMeasureUnequalTime", false);
 
@@ -128,7 +146,6 @@ int main(int argc, char** argv) {
         "Trotter Discretization : ", dtau, '\n',
         "N of Imaginary Time    : ", nt, '\n',
         "Stabilization interval : ", n_stab, '\n',
-        "N thermalization sweeps: ", n_therms, '\n',
         "N sweeps per bin       : ", n_sweeps, '\n',
         "N bins                 : ", n_bins, "\n"
         "Measure UnequalTime ?  : ", isUnequalTime, "\n\n"
@@ -150,40 +167,35 @@ int main(int argc, char** argv) {
     //                     Start of DQMC simulation
     // -----------------------------------------------------------------
 
-    // thermalization
-    const auto t0_therm = std::chrono::steady_clock::now();
-    for (int i = 0; i < n_therms; ++i) {
+    // --- Measurement Sweeps ---
+    double local_time = 0.0;
+    int exchange_attempts = 0;
+    int exchange_accepts = 0;
+    const int pt_exchange_freq = use_pt ? params.getInt("parallel_tempering", "exchange_freq") : 0;
+
+    utility::io::print_info("DQMC Sweeps starts ...\n");
+    const auto t0_measure = std::chrono::steady_clock::now();
+    for (int isweep = 1; isweep <= total_sweeps; ++isweep) {
         sim.sweep_0_to_beta(greens, propagation_stacks);
         sim.sweep_beta_to_0(greens, propagation_stacks);
-    }
-    const auto dt_therm = std::chrono::duration<double>(
-        std::chrono::steady_clock::now() - t0_therm).count();
-    
-    utility::io::print_info("Thermalization done in ", dt_therm, " seconds\n");
-
-    // measurement sweeps
-    double local_time = 0.0;
-    for (int ibin = 0; ibin < n_bins; ++ibin) {
-        const auto t0_bin = std::chrono::steady_clock::now();   // start timer for this bin
-
-        for (int isweep = 0; isweep < n_sweeps; ++isweep) {
-            sim.sweep_0_to_beta(greens, propagation_stacks);
-            measurements.measure(greens, lat);
-
-            sim.sweep_beta_to_0(greens, propagation_stacks);
-            measurements.measure(greens, lat);
-
-            if (isUnequalTime) {
-                // do sweep without updating HS field for unequal time measurements.
-                sim.sweep_unequalTime(greens, propagation_stacks);
-                measurements.measure_unequalTime(greens, lat);
-            }
+        
+        measurements.measure(greens, lat);
+        if (isUnequalTime) {
+            sim.sweep_unequalTime(greens, propagation_stacks);
+            measurements.measure_unequalTime(greens, lat);
         }
-        measurements.accumulate(lat);
 
-        local_time += std::chrono::duration<double>(
-            std::chrono::steady_clock::now() - t0_bin).count();
+        if (use_pt) {
+            updates::replica_exchange(isweep, pt_exchange_freq, rank, world_size,
+                                      sim, hubbard, greens, propagation_stacks,
+                                      rng, exchange_attempts, exchange_accepts);
+        }
+
+        if (isweep % n_sweeps == 0) {
+            measurements.accumulate(lat);
+        }
     }
+    local_time = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0_measure).count();
     
     // ----------------------------------------------------------------- 
     //                         Finalization
@@ -193,20 +205,33 @@ int main(int argc, char** argv) {
     double total_time = 0.0;
     MPI_Reduce(&local_time, &total_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 
-    {
-        const double avg_per_sweep = total_time / (n_bins * n_sweeps * world_size);
-        const int total_sec = static_cast<int>(local_time);
+    int total_exchange_attempts=0, total_exchange_accepts=0;
+    if(use_pt){
+        MPI_Reduce(&exchange_attempts, &total_exchange_attempts, 1, MPI_INT, MPI_SUM, master, MPI_COMM_WORLD);
+        MPI_Reduce(&exchange_accepts, &total_exchange_accepts, 1, MPI_INT, MPI_SUM, master, MPI_COMM_WORLD);
+    }
+
+    if (rank == master) {
+        const int total_sec = static_cast<int>(total_time/world_size);
         const int h = total_sec / 3600;
         const int m = (total_sec % 3600) / 60;
         const int s = total_sec % 60;
 
         utility::io::print_info(
             "DQMC measurement sweeps are finished in ",
-            h, " hours ", m, " minutes ", s, " seconds.\n"
-            "Average acceptance rate = ",
+            h, " hours ", m, " minutes ", s, " seconds.\n",
+            "Local update acceptance rate = ",
             std::fixed, std::setprecision(4),
-            sim.acc_rate() / (2.0 * (n_bins * n_sweeps + n_therms)), '\n'
+            sim.acc_rate() / (2.0 * (total_sweeps)), '\n'
         );
+
+        if(use_pt && total_exchange_attempts > 0){
+            utility::io::print_info(
+                "PT exchange acceptance rate = ",
+                std::fixed, std::setprecision(4),
+                static_cast<double>(total_exchange_accepts) / total_exchange_attempts, '\n'
+            );
+        }
     }
 
     MPI_Finalize();

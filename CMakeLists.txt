@@ -46,6 +46,7 @@ set(SOURCES
     model.cpp
     dqmc.cpp
     observables.cpp
+    updates.cpp
 )
 
 # Add executable

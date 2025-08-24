@@ -175,6 +175,18 @@ namespace utility {
             file.close();
         }
         
+        // Method to override parameters with values from another parameter object
+        void override_with(const parameters& other) {
+            for (const auto& section_pair : other.sections) {
+                const std::string& section_name = section_pair.first;
+                const auto& other_keys = section_pair.second;
+
+                for (const auto& key_pair : other_keys) {
+                    sections[section_name][key_pair.first] = key_pair.second;
+                }
+            }
+        }
+        
         // Get string parameter
         std::string getString(const std::string& section, const std::string& key) const {
             auto section_it = sections.find(section);

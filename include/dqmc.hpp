@@ -24,6 +24,7 @@ struct GF {
     std::vector<GreenFunc> Gtt;
     std::vector<GreenFunc> Gt0;  // G(τ,0)
     std::vector<GreenFunc> G0t;  // G(0,τ)
+    double log_det_M;
 };
 
 class DQMC {
@@ -65,8 +66,8 @@ public:
 
     // Constructor
     DQMC(model::HubbardAttractiveU& model, int n_stab)
-        : model_(model), n_stab_(n_stab),
-          n_stack_(model.nt() / n_stab), acc_rate_(0.0), avg_sgn_(1.0) {}
+        : model_(model), n_stab_(n_stab), n_stack_(model.nt() / n_stab),
+          acc_rate_(0.0), avg_sgn_(1.0) {}
 
     // Getters
     double acc_rate() { return acc_rate_; }
@@ -74,6 +75,9 @@ public:
     // most important initialization before sweeps
     linalg::LDRStack init_stacks(int nfl);
     GF init_greenfunctions(linalg::LDRStack& propagation_stack);
+
+    // Action calculation for Parallel Tempering
+    double calculate_action(const std::vector<GF>& greens);
 
     // sweep
     void sweep_0_to_beta(std::vector<GF>& greens, std::vector<linalg::LDRStack>& propagation_stacks);

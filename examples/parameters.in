@@ -6,14 +6,16 @@ Ly = 4
 [hubbard]
 U = 4.0                        # On-site interaction strength
 t =  1.0                        # Hopping parameters
-mu = -0.1                       # Chemical potential
+mu = -0.1                       # Chemical potential for the TARGET replica
+
+[parallel_tempering]
+enabled = false                  # Enable parallel tempering mode
+exchange_freq = 10              # Attempt replica exchanges every N sweeps
 
 [simulation]
-beta = 5.0                      # Inverse temperature
+beta = 5.0                      # Inverse temperature for the TARGET replica
 nt = 100                        # Number of Imaginary time step
-n_therms = 5_000                 # Number of thermalization sweeps
 n_sweeps = 100                   # Number of Monte Carlo sweeps
-n_bins = 200                    # Number of total bins. each bin contain average observable after n_sweeps 
+n_bins = 400                    # Number of total bins. each bin contain average observable after n_sweeps 
 n_stab = 5                      # Length of numerical stabilization in imaginary time propagation
-symm = false
 isMeasureUnequalTime = true     # whether to measure unequaltime
