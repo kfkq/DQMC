@@ -3,4 +3,6 @@
 build/
 examples/results/
 check_features/
+examples/
+simulations/
 .vscode/
