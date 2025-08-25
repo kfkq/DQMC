@@ -1,63 +1,89 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 
+#include "dqmc.h"
 #include "model/ahubbard.h"
 #include "utility.h"
 #include "lattice.h"
 #include <vector>
 #include <cmath>
+#include <fstream>
 
-// Helper to check for approximate equality
-bool approx_equal(double a, double b, double tol = 1e-12) {
-    return std::abs(a - b) < tol;
-}
-
-TEST_CASE("HubbardAttractiveU Model Initialization and Properties") {
-    // --- 1. Setup ---
-    std::ofstream pfile("test_params_model.ini");
-    pfile << "[lattice]\nLx = 4\nLy = 6\n[hubbard]\nU = 4.0\nt = 1.0\nmu = -0.5\n"
-          << "[simulation]\nbeta = 2.0\nnt = 20\nn_stab = 5\n";
-    pfile.close();
-
-    utility::parameters params("test_params_model.ini");
+// A test fixture to create a standard simulation setup for DQMC tests.
+// This avoids code duplication and ensures a consistent state for each test case.
+struct DQMC_Test_Fixture {
+    utility::parameters params;
     utility::random rng;
-    rng.set_seed(123);
+    Lattice lat;
+    HubbardAttractiveU model;
+    DQMC sim;
 
-    std::array<double, 2> a1 = {1.0, 0.0};
-    std::array<double, 2> a2 = {0.0, 1.0};
-    std::vector<std::array<double, 2>> orbs = {{0.0, 0.0}};
-    Lattice lat(a1, a2, orbs, params.getInt("lattice", "Lx"), params.getInt("lattice", "Ly"));
-
-    HubbardAttractiveU model(params, lat, rng);
-
-    SUBCASE("Model correctly reports its basic properties") {
-        CHECK(model.n_timesteps() == 20);
-        CHECK(model.n_flavors() == 1); // Attractive Hubbard model has 2 degenerate flavors
+    DQMC_Test_Fixture()
+        // 1. Create a temporary parameters file with a small, fast-to-test configuration.
+        : params([]() {
+              std::ofstream pfile("test_params_dqmc.ini");
+              pfile << "[lattice]\nLx = 2\nLy = 2\n"
+                    << "[hubbard]\nU = 4.0\nt = 1.0\nmu = 0.0\n"
+                    << "[simulation]\nbeta = 1.0\nnt = 10\nn_stab = 5\n";
+              pfile.close();
+              return utility::parameters("test_params_dqmc.ini");
+          }()),
+          // 2. Initialize all necessary simulation components.
+          rng(),
+          lat({1.0, 0.0}, {0.0, 1.0}, {{0.0, 0.0}},
+              params.getInt("lattice", "Lx"), params.getInt("lattice", "Ly")),
+          model(params, lat, rng),
+          sim(params, model, rng)
+    {
+        // 3. Use a fixed seed for reproducible test results.
+        rng.set_seed(42);
     }
 
-    SUBCASE("expK and invexpK matrices are correctly sized and inverses of each other") {
-        const arma::mat& expK = model.get_expK();
-        const arma::mat& invexpK = model.get_invexpK();
-        int n_sites = lat.n_sites();
+    ~DQMC_Test_Fixture() {
+        // 4. Clean up the temporary file after the test is done.
+        std::remove("test_params_dqmc.ini");
+    }
+};
 
-        CHECK(expK.n_rows == n_sites);
-        CHECK(expK.n_cols == n_sites);
-        CHECK(invexpK.n_rows == n_sites);
-        CHECK(invexpK.n_cols == n_sites);
+TEST_CASE("DQMC Engine Initialization") {
+    DQMC_Test_Fixture fix;
 
-        // Check if their product is the identity matrix
-        arma::mat product = expK * invexpK;
-        arma::mat identity = arma::eye(n_sites, n_sites);
-        CHECK(arma::approx_equal(product, identity, "absdiff", 1e-12));
+    SUBCASE("init_stacks creates a stack of the correct size") {
+        int n_flavors = fix.model.n_flavors();
+        for (int flv = 0; flv < n_flavors; ++flv) {
+            LDRStack stack = fix.sim.init_stacks(flv);
+            int expected_n_stack = fix.params.getInt("simulation", "nt") / fix.params.getInt("simulation", "n_stab");
+            CHECK(stack.size() == expected_n_stack);
+        }
     }
 
-    SUBCASE("get_expV returns a vector of the correct size") {
-        int time_slice = 5;
-        int flavor = 0;
-        arma::vec expV = model.get_expV(time_slice, flavor);
-        CHECK(expV.n_elem == lat.n_sites());
-    }
+    SUBCASE("init_greenfunctions calculates G(0,0) correctly") {
+        // --- Setup ---
+        int n_flavors = fix.model.n_flavors();
+        int nt = fix.model.n_timesteps();
+        int ns = fix.model.n_size();
+        arma::mat B_beta_0 = arma::eye(ns, ns);
 
-    // Cleanup
-    std::remove("test_params_model.ini");
+        // --- Naive (unstable) calculation of B(beta, 0) ---
+        // This is safe only for the very small 'nt' used in this test.
+        for (int l = nt - 1; l >= 0; --l) {
+            arma::mat expK = fix.model.get_expK();
+            arma::vec expV = fix.model.get_expV(l, 0); // flavor 0
+            arma::mat B_l = stablelinalg::diag_mul_mat(expV, expK);
+            B_beta_0 = B_beta_0 * B_l;
+        }
+
+        // Expected G(0,0) = [I + B(beta,0)]^-1
+        arma::mat G00_expected = arma::inv(arma::eye(ns, ns) + B_beta_0);
+
+        // --- DQMC (stable) calculation ---
+        LDRStack stack = fix.sim.init_stacks(0); // flavor 0
+        GF greens = fix.sim.init_greenfunctions(stack);
+        arma::mat G00_calculated = greens.Gtt[0];
+
+        // --- Comparison ---
+        // Check that the stable and naive methods produce the same result.
+        CHECK(arma::approx_equal(G00_calculated, G00_expected, "absdiff", 1e-9));
+        CHECK(greens.Gtt.size() == nt + 1);
+    }
 }
