@@ -1,5 +1,27 @@
 #include <dqmc.h>
 
+// --- Constructor ---
+DQMC::DQMC(const utility::parameters& params, AttractiveHubbard& model)
+        : model_(model), acc_rate_(0.0), avg_sgn_(1.0) 
+{
+    int nt = params.getInt("simulation", "nt");
+    n_stab_ = params.getInt("simulation", "n_stab");
+    n_stack_ = (model.nt() / n_stab_);
+    isUnequalTime_ = params.getBool("simulation", "isMeasureUnequalTime");
+
+    // Initialize the cache for B-matrices
+    int nfl = model_.n_flavor();
+    int ns = model_.ns();
+    B_.resize(nfl);
+    invB_.resize(nfl);
+    for (auto& flavor_cache : B_) {
+        flavor_cache.resize(nt, arma::mat(ns, ns, arma::fill::zeros));
+    }
+    for (auto& flavor_cache : invB_) {
+        flavor_cache.resize(nt, arma::mat(ns, ns, arma::fill::zeros));
+    }
+
+}
 
 /* --------------------------------------------------------------------------------
 /
@@ -8,9 +30,6 @@
 -------------------------------------------------------------------------------- */
 LDRStack DQMC::init_stacks(int flv) {
     LDRStack propagation_stack(n_stack_);
-
-    B_.resize(model_.nt(), arma::mat(model_.ns(), model_.ns()));
-    invB_.resize(model_.nt(), arma::mat(model_.ns(), model_.ns()));
 
     for (int i_stack = n_stack_ - 1; i_stack >= 0; i_stack--) {
         auto Bbar = calculate_Bbar(i_stack, flv);
@@ -40,6 +59,20 @@ GF DQMC::init_greenfunctions(LDRStack& propagation_stack) {
     return greens;
 }
 
+// --- B matrices calculation ---
+arma::mat DQMC::calculate_B(arma::mat& expK, arma::mat& expV) {
+    return expV * expK;
+}
+arma::mat DQMC::calculate_B(arma::mat& expK, arma::vec& expV) {
+    return stablelinalg::diag_mul_mat(expV, expK);
+}
+arma::mat DQMC::calculate_invB(arma::mat& invexpK, arma::mat& invexpV) {
+    return invexpK * invexpV;
+}
+arma::mat DQMC::calculate_invB(arma::mat& invexpK, arma::vec& invexpV) {
+    return stablelinalg::mat_mul_diag(invexpK, invexpV);
+}
+
 arma::mat DQMC::calculate_Bbar(int i_stack, int flv, bool recalculate_cache) {
     int ns = model_.ns();
 
@@ -48,9 +81,11 @@ arma::mat DQMC::calculate_Bbar(int i_stack, int flv, bool recalculate_cache) {
     for (int loc_l = 0; loc_l < n_stab_; loc_l++) {
         int l = global_l(i_stack, loc_l);
         if (recalculate_cache) {
-            B_[l] = model_.calc_B(l, flv);
+            auto expK = model_.expK(flv);
+            auto expV = model_.expV(l, flv);
+            B_[flv][l] = calculate_B(expK, expV);
         }
-        Bbar = B_[l] * Bbar;
+        Bbar = B_[flv][l] * Bbar;
     }
     return Bbar;
 }
@@ -61,15 +96,25 @@ arma::mat DQMC::calculate_Bbar(int i_stack, int flv, bool recalculate_cache) {
 /
 -------------------------------------------------------------------------------- */
 
-void DQMC::propagate_GF_forward(GF& greens, int l, int flv) {
+void DQMC::propagate_GF_forward(std::vector<GF>& greens, int l) {
     /*
     /   Gtt = B_l * Gtt * B_l^{-1}
     */
 
-    B_[l] = model_.calc_B(l, flv);
-    invB_[l] = model_.calc_invB(l, flv);
+    int n_flavor = model_.n_flavor();
 
-    greens.Gtt[l+1] = B_[l] * greens.Gtt[l] * invB_[l];
+    for (int flv = 0; flv < n_flavor; flv++)
+    {
+        auto expK = model_.expK(flv);
+        auto expV = model_.expV(l, flv);
+        B_[flv][l] = calculate_B(expK, expV);
+
+        auto invexpK = model_.invexpK(flv);
+        auto invexpV = model_.invexpV(l, flv);
+        invB_[flv][l] = calculate_invB(invexpK, invexpV);
+
+        greens[flv].Gtt[l+1] = B_[flv][l] * greens[flv].Gtt[l] * invB_[flv][l];
+    }
 }
 
 void DQMC::update_stack_forward(LDRStack& propagation_stack, arma::mat& Bprod, int i_stack) {
@@ -87,9 +132,10 @@ void DQMC::update_stack_forward(LDRStack& propagation_stack, arma::mat& Bprod, i
 }
 
 void DQMC::stabilize_GF_forward(GF& greens, LDRStack& propagation_stack, int l) {
+    const int nt = model_.nt();
     int i_stack = stack_idx(l);
     
-    if (l == model_.nt() - 1) { // at last propagation
+    if (l == nt - 1) { // at last propagation
         //  G(β, β) = G(0,0) = [I + B(β,0)]^{-1}
         greens.Gtt[l+1] = stablelinalg::inv_I_plus_ldr(propagation_stack[i_stack], greens.log_det_M);
     } else {
@@ -106,15 +152,24 @@ void DQMC::stabilize_GF_forward(GF& greens, LDRStack& propagation_stack, int l) 
 /
 -------------------------------------------------------------------------------- */
 
-void DQMC::propagate_GF_backward(GF& greens, int l, int flv) {
+void DQMC::propagate_GF_backward(std::vector<GF>& greens, int l) {
     /*
     /       Gtt = B_l^{-1} * Gttup * B_l
     */
 
-    B_[l] = model_.calc_B(l, flv);
-    invB_[l] = model_.calc_invB(l, flv);
+    int n_flavor = model_.n_flavor();
+    for (int flv = 0; flv < n_flavor; flv++)
+    {   
+        auto expK = model_.expK(flv);
+        auto expV = model_.expV(l, flv);
+        B_[flv][l] = calculate_B(expK, expV);
 
-    greens.Gtt[l] = invB_[l] * greens.Gtt[l+1] * B_[l];
+        auto invexpK = model_.invexpK(flv);
+        auto invexpV = model_.invexpV(l, flv);
+        invB_[flv][l] = calculate_invB(invexpK, invexpV);
+
+        greens[flv].Gtt[l] = invB_[flv][l] * greens[flv].Gtt[l+1] * B_[flv][l];
+    }
 }
 
 void DQMC::update_stack_backward(LDRStack& propagation_stack, arma::mat& Bprod, int i_stack) {
@@ -151,22 +206,29 @@ void DQMC::stabilize_GF_backward(GF& greens, LDRStack& propagation_stack, int l)
 /
 -------------------------------------------------------------------------------- */
 
-void DQMC::propagate_unequalTime_GF_forward(GF& greens, int l, int flv) {
+void DQMC::propagate_unequalTime_GF_forward(std::vector<GF>& greens, int l) {
     /*
     /       Gtt = B_l * Gtt * B_l^{-1}
     /       Gt0 = B_l * Gt0
     /       G0t = G0t * B_l^{-1}
     */
 
-    if (l == 0) { // at τ = 0
-        // G(τ,0) = G(0,0)
-        greens.Gt0[0] = greens.Gtt[0];
-        // G(0,τ) = - [ I - G(0,0) ]
-        greens.G0t[0] = greens.Gtt[0] - arma::eye(model_.ns(),model_.ns());       
+    const int ns = model_.ns();
+    int n_flavor = model_.n_flavor();
+
+    for (int flv = 0; flv < n_flavor; flv++)
+    {
+        if (l == 0) { // at τ = 0
+            // G(τ,0) = G(0,0)
+            greens[flv].Gt0[0] = greens[flv].Gtt[0];
+            // G(0,τ) = - [ I - G(0,0) ]
+            greens[flv].G0t[0] = greens[flv].Gtt[0] - arma::eye(ns, ns);       
+        }
+        greens[flv].Gtt[l+1] = B_[flv][l] * greens[flv].Gtt[l] * invB_[flv][l];
+        greens[flv].Gt0[l+1] = B_[flv][l] * greens[flv].Gt0[l];
+        greens[flv].G0t[l+1] = greens[flv].G0t[l] * invB_[flv][l];
     }
-    greens.Gtt[l+1] = B_[l] * greens.Gtt[l] * invB_[l];
-    greens.Gt0[l+1] = B_[l] * greens.Gt0[l];
-    greens.G0t[l+1] = greens.G0t[l] * invB_[l];
+    
 }
 
 void DQMC::propagate_Bt0_Bbt(stablelinalg::LDR& Bt0, stablelinalg::LDR& Bbt, 
@@ -247,9 +309,7 @@ void DQMC::sweep_0_to_beta(std::vector<GF>& greens, std::vector<LDRStack>& propa
         loc_l = local_l(l);
         i_stack = stack_idx(l);
 
-        for (int flv = 0; flv < n_flavor; flv++) {
-            propagate_GF_forward(greens[flv], l, flv);
-        }
+        propagate_GF_forward(greens, l);
 
         // update HS field over space given time slice
         acc_l = model_.update_time_slice(greens, l);
@@ -314,9 +374,7 @@ void DQMC::sweep_beta_to_0(std::vector<GF>& greens, std::vector<LDRStack>& propa
         acc_l = model_.update_time_slice(greens, l);
         acc_rate_ += acc_l / nt;
 
-        for (int flv = 0; flv < n_flavor; flv++) {
-            propagate_GF_backward(greens[flv], l, flv);
-        }
+        propagate_GF_backward(greens, l);
 
         // Do the stabilization every interval time, the beginning of stack
         if (loc_l == 0) {
@@ -370,9 +428,7 @@ void DQMC::sweep_unequalTime(std::vector<GF>& greens, std::vector<LDRStack>& pro
         loc_l = local_l(l);
         i_stack = stack_idx(l);
 
-        for (int flv = 0; flv < n_flavor; flv++) {
-            propagate_unequalTime_GF_forward(greens[flv], l, flv);
-        }
+        propagate_unequalTime_GF_forward(greens, l);
 
         // Do the stabilization at interval time
         if (loc_l  == n_stab_ - 1) {      

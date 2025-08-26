@@ -17,11 +17,9 @@ class AttractiveHubbard {
     private:
         // Model parameters
         double t_;        // hopping parameter
-        double U_;        // interaction strength
         double mu_;       // chemical potential
-        double dtau_;     // imaginary time step
+        double g_;        // g = sqrt(dtau * U / 2)
         double alpha_;    // Hubbard-Stratonovich coupling
-        double n_flavor_; // Number of factorized DQMC product (spin)
         
         // Lattice info
         int ns_;     // number of lattice sites
@@ -30,7 +28,6 @@ class AttractiveHubbard {
         // Matrices
         arma::mat expK_; 
         arma::mat invexpK_; 
-        arma::vec expV_;
 
         //GHQField
         arma::vec gamma_;
@@ -40,23 +37,23 @@ class AttractiveHubbard {
         // Random number generator
         utility::random& rng_;
 
-        void init_expK(const Lattice& lat);
+        arma::mat build_K_matrix(const Lattice& lat);
         void init_GHQfields();
 
     public:
-        AttractiveHubbard(const utility::parameters& params,
-                        const Lattice& lat, utility::random& rng);
+        AttractiveHubbard(const utility::parameters& params, const Lattice& lat, utility::random& rng);
 
         // Getters
-        const arma::mat& expK() const { return expK_; }
+        const arma::mat& expK(int flv) const { return expK_; }
+        const arma::mat& invexpK(int flv) const { return invexpK_; }
+        arma::vec expV(int l, int flv);
+        arma::vec invexpV(int l, int flv);
+
         const arma::imat& fields() const { return fields_; }
+
         int nt() const { return nt_; }
         int ns() const { return ns_; }
-        int n_flavor() const { return n_flavor_; }
-
-        // Functions that will be used in the simulation
-        arma::mat calc_B(int t, int nfl);
-        arma::mat calc_invB(int t, int nfl);
+        int n_flavor() const { return 1; }
 
         double acceptance_ratio(arma::mat& Gtt, double delta, int i);
         void update_greens(arma::mat& gtt, double delta, int i);

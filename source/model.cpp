@@ -14,49 +14,50 @@ AttractiveHubbard::AttractiveHubbard(
 {    
     //
     t_  = params.getDouble("hubbard", "t");
-    U_  = params.getDouble("hubbard", "U");
     mu_ = params.getDouble("hubbard", "mu");
-    
-    n_flavor_ = 1;
-
     ns_ = lat.n_cells();
     nt_ = params.getDouble("simulation", "nt");
-    double beta = params.getDouble("simulation", "beta");
-    dtau_ = beta / nt_;    
+
+    const double U  = params.getDouble("hubbard", "U");
+    const double beta = params.getDouble("simulation", "beta");
+    const double dtau = beta / nt_;    
+
+    g_ = sqrt(0.5 * std::abs(U) * dtau);
+    alpha_ = -1.0;
     
     // compute and store the necessary constant and matrices for model and simulation
-    init_expK(lat);
-    expV_.set_size(ns_);
+    arma::mat K = build_K_matrix(lat);
+    expK_ = arma::expmat(-dtau * K);
+    invexpK_ = arma::expmat(dtau * K);
+
     init_GHQfields();
 } 
 
+// Helper function to build the kinetic matrix K for a square lattice
+arma::mat AttractiveHubbard::build_K_matrix(const Lattice& lat) {
+    int n_sites = lat.n_sites();
+    arma::mat K(n_sites, n_sites, arma::fill::zeros);
 
-void AttractiveHubbard::init_expK(const Lattice& lat) {
-    /*  Initialize the one-body operator H_0 in matrix form 
-    /       K = - t \sum_{<i,j>} c^†_i c_j - \mu \sum_i c^†_i c_i
-    */
-
-
-    arma::mat K(ns_,ns_);
-    for (int i = 0; i < ns_; i++) {
-        int ix = lat.site_neighbors(i, {1, 0}, 0);
-        K(i, ix) = -t_;
-        K(ix, i) = -t_;
-
-        int iy = lat.site_neighbors(i, {0, 1}, 0);
-        K(i, iy) = -t_;
-        K(iy, i) = -t_;
-        
+    for (int i = 0; i < n_sites; ++i) {
         K(i, i) = -mu_;
+        
+        // single orbital for neighbor finding
+        int orb = 0; 
+        
+        // Hopping in +x direction
+        int neighbor_x = lat.site_neighbors(i, {1, 0}, orb);
+        K(i, neighbor_x) = -t_;
+        K(neighbor_x, i) = -t_;
+        
+        // Hopping in +y direction
+        int neighbor_y = lat.site_neighbors(i, {0, 1}, orb);
+        K(i, neighbor_y) = -t_;
+        K(neighbor_y, i) = -t_;
     }
-    
-    expK_ = arma::expmat(-dtau_ * K);
-    invexpK_ = arma::expmat(dtau_ * K);
+    return K;
 }
 
-void AttractiveHubbard::init_GHQfields() {
-    alpha_ = std::sqrt(0.5 * std::abs(U_) * dtau_); // Note the sqrt!
-    
+void AttractiveHubbard::init_GHQfields() {    
     gamma_.set_size(4);
     eta_.set_size(4);
     
@@ -82,30 +83,28 @@ void AttractiveHubbard::init_GHQfields() {
     }
 }
 
-/* --------------------------------------------------------------------------------------------- 
-/   Functions for calculation of B matrix = Bup = Bdn
-/       B = expV * expK = exp(-dtau *V) * exp(-dtau * K)
-/       exp(-dtau *V) is in the form of HS decomposition
---------------------------------------------------------------------------------------------- */
+arma::vec AttractiveHubbard::expV(int l, int flv) {
+    // For the attractive model, expV is the same for both flavors.
+    const int nv = fields_.n_cols;
+    arma::vec expV(nv);
 
-arma::mat AttractiveHubbard::calc_B(int t, int nfl) {
-    /* 
-    / Calculate B matrix at time slice t (same for both spins in attractive Hubbard)
-    /       B = \gamma(t,i) exp( \sqrt(\delta\tau U) * \eta(t,i)) * exp(-dtau * K)
-    */
-    for (int i = 0; i < ns_; i++) {
-        expV_(i) = std::exp( alpha_ * eta_(fields_(t, i)) );
+    for (int i = 0; i < nv; ++i) {
+        int f = fields_(l, i);
+        expV(i) = std::exp(g_ * eta_(f));
     }
-
-    return stablelinalg::diag_mul_mat(expV_, expK_); 
+    return expV;
 }
 
-arma::mat AttractiveHubbard::calc_invB(int t, int nfl) {
-    for (int i = 0; i < ns_; i++) {
-        expV_(i) = std::exp( -alpha_ * eta_(fields_(t, i)) );
-    }
+arma::vec AttractiveHubbard::invexpV(int l, int flv) {
+    // For the attractive model, expV is the same for both flavors.
+    const int nv = fields_.n_cols;
+    arma::vec invexpV(nv);
 
-    return stablelinalg::mat_mul_diag(invexpK_, expV_);
+    for (int i = 0; i < nv; ++i) {
+        int f = fields_(l, i);
+        invexpV(i) = std::exp(-g_ * eta_(f));
+    }
+    return invexpV;
 }
 
 /* --------------------------------------------------------------------------------------------- 
@@ -161,7 +160,7 @@ double AttractiveHubbard::update_time_slice(std::vector<GF>& greens, int l) {
         double gamma_ratio = gamma_(new_field) / gamma_(old_field);
 
         double delta_eta = eta_(new_field) - eta_(old_field);
-        double bosonic_ratio = std::exp(-1.0 * alpha_ * delta_eta);
+        double bosonic_ratio = std::exp(alpha_ * g_ * delta_eta);
         double delta = (1.0 / bosonic_ratio) - 1.0;
         
         double fermionic_ratio  = acceptance_ratio(greens[0].Gtt[l+1], delta, i);
