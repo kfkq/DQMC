@@ -5,12 +5,6 @@ Philosophy: A simple codebase without over-engineering or excessive dependencies
 
 Currently in heavy development and testing for new modern cpp implementation
 
-
-to test
-```
-ctest --test-dir build --output-on-failure
-```
-
 ## Usage
 
 ### Compilation
