@@ -1,6 +1,7 @@
 .aider*
 .env
 build/
-examples/results/
+examples/
+!examples/parameters.in
 check_features/
 .vscode/

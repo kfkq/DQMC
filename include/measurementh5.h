@@ -1,25 +1,13 @@
-#ifndef MEASUREMENT_HPP
-#define MEASUREMENT_HPP
-
-#include "dqmc.hpp"
-#include "h5utils.hpp"
-#include "utility.hpp"
-#include "observables.hpp"
+#pragma once
 
 #include <mpi.h>
 #include <armadillo>
-#include <iostream>
-#include <fstream>
-#include <string>
-#include <iomanip>
-#include <sstream>
-#include <map>
-#include <tuple>
-#include <set>
+
+#include <utility.h>
+#include <stackngf.h>
+#include <lattice.h>
+#include <h5utils.h>
 #include <hdf5.h>
-#include <memory>
-#include <sys/stat.h>
-#include <unistd.h>
 
 namespace transform {
     inline int pbc_shortest(int d, int L) {
@@ -369,5 +357,3 @@ private:
         H5Gclose(group_id_k);
     }
 };
-
-#endif

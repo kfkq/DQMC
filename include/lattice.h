@@ -1,12 +1,14 @@
+/*
+/   This module defines the geometry of the simulation lattice,
+/   including real-space vectors, reciprocal space vectors,
+/   and helper functions.
+/
+/   Author: Muhammad Gaffar
+*/
 
-#ifndef LATTICE_HPP
-#define LATTICE_HPP
+#pragma once
 
 #include <armadillo>
-#include <vector>
-#include <array>
-#include <cmath>
-#include <stdexcept>
 
 class Lattice {
 private:
@@ -106,5 +108,3 @@ public:
         return (ty*Lx_+tx)*n_orb_+orb;
     }
 };
-
-#endif // LATTICE_HPP

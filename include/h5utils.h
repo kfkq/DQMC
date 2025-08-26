@@ -1,11 +1,8 @@
-#ifndef HDF5_UTILS_HPP
-#define HDF5_UTILS_HPP
+#pragma once
 
 #include <armadillo>
-#include <string>
 #include <hdf5.h>
 #include <hdf5_hl.h>
-#include <stdexcept>
 
 namespace hdf5 {
     
@@ -132,6 +129,4 @@ namespace hdf5 {
     inline void close_file(hid_t file_id) {
         H5Fclose(file_id);
     }
-}
-
-#endif
+};

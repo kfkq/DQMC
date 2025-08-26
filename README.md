@@ -3,26 +3,30 @@ Simple Determinant Quantum Monte Carlo (DQMC) Implementation
 
 Philosophy: A simple codebase without over-engineering or excessive dependencies - easy to read and flexible enough to implement your own DQMC for research purposes.
 
-How to use:
+Currently in heavy development and testing for new modern cpp implementation
 
-compilation
 
-    ```bash
-    mkdir build && cd build
-    cmake -DCMAKE_BUILD_TYPE=Release ..
-    make
-    cd ..
-    ```
+to test
+```
+ctest --test-dir build --output-on-failure
+```
 
-running on parameters.in
+## Usage
 
-    ```bash
-    cd examples
-    mpirun -np 128 ../build/dqmc
-    ```
+### Compilation
 
+```bash
+cmake -S . -B build
+cmake --build build
+```
+
+### Examples 
+Run DQMC inside folder with `parameters.in`
+```bash
+cd examples
+mpirun -np 128 ../build/dqmc
+```
 Final error estimation using jacknife analysis
-
-    ```bash
-    python ../scripts/analysis.py
-    ```
+```bash
+python ../scripts/analysis.py
+```

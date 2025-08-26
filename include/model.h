@@ -1,15 +1,17 @@
-#ifndef MODEL_HPP
-#define MODEL_HPP
+/*
+/   This module provides an implementation of attractive Hubbard model.
+/
+/   Author: Muhammad Gaffar
+*/
+
+#pragma once
 
 #include <armadillo>
-#include <cmath>
-#include <cassert>
 
-#include "linalg.hpp"
-#include "lattice.hpp"
-#include "utility.hpp"
-
-struct GF;
+#include <stackngf.h>
+#include <stablelinalg.h>
+#include <lattice.h>
+#include <utility.h>
 
 namespace model {
 
@@ -72,4 +74,13 @@ namespace model {
     };
 
 } // namespace model
-#endif
+
+namespace Observables {
+    double calculate_density(const std::vector<GF>& greens, const Lattice& lat);
+    double calculate_doubleOccupancy(const std::vector<GF>& greens, const Lattice& lat);
+    double calculate_swavePairing(const std::vector<GF>& greens, const Lattice& lat);
+    arma::mat calculate_densityCorr(const std::vector<GF>& greens, const Lattice& lat);
+    arma::cube calculate_greenTau(const std::vector<GF>& greens, const Lattice& lat);
+    arma::cube calculate_doublonTau(const std::vector<GF>& greens, const Lattice& lat);
+    arma::cube calculate_currxxTau(const std::vector<GF>& greens, const Lattice& lat);
+} // namespace observables

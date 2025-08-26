@@ -42,10 +42,10 @@ include_directories(
 
 # Source files
 set(SOURCES
-    main.cpp
-    model.cpp
-    dqmc.cpp
-    observables.cpp
+    source/main.cpp
+    source/model.cpp
+    source/dqmc.cpp
+    source/stablelinalg.cpp
 )
 
 # Add executable

@@ -1,17 +1,14 @@
-#include "dqmc.hpp"
-#include "linalg.hpp"
-#include "lattice.hpp"
-#include "model.hpp" 
-#include "measurementh5.hpp"
-#include "observables.hpp"
+#include <mpi.h>
 
-#include "utility.hpp"
-#include <iostream>
+#include <stablelinalg.h>
+#include <lattice.h>
+#include <model.h>
+#include <dqmc.h>
+#include <measurementh5.h>
+#include <utility.h>
+
 #include <iomanip>
 #include <chrono>
-#include <string>
-
-#include <mpi.h>
 
 int main(int argc, char** argv) {
     // ----------------------------------------------------------------- 
@@ -37,8 +34,7 @@ int main(int argc, char** argv) {
     // -----------------------------------------------------------------
 
     // Initialize the random number generator with a seed
-    utility::random rng;
-    rng.set_seed(std::time(nullptr) + rank);
+    utility::random rng(std::time(nullptr) + rank);
 
     // parse parameters file
     utility::parameters params("parameters.in");
@@ -109,7 +105,7 @@ int main(int argc, char** argv) {
     auto sim = DQMC(hubbard, n_stab);
 
     // propagation stacks and greens initialization
-    std::vector<linalg::LDRStack> propagation_stacks(n_flavor);
+    std::vector<LDRStack> propagation_stacks(n_flavor);
     std::vector<GF>               greens(n_flavor);
     for (int nfl = 0; nfl < n_flavor; nfl++) {
         propagation_stacks[nfl] = sim.init_stacks(nfl);
