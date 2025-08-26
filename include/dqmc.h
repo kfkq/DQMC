@@ -24,8 +24,10 @@ private:
 
     bool isUnequalTime_;
 
+    int nt_;
     int n_stab_;
     int n_stack_;
+    std::vector<int> loc_l_end_;
 
      // --- Caching for B-matrices ---
     // To avoid recomputing B when no update field update.

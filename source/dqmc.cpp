@@ -4,10 +4,17 @@
 DQMC::DQMC(const utility::parameters& params, AttractiveHubbard& model)
         : model_(model), acc_rate_(0.0), avg_sgn_(1.0) 
 {
-    int nt = params.getInt("simulation", "nt");
+    nt_ = params.getInt("simulation", "nt");
     n_stab_ = params.getInt("simulation", "n_stab");
-    n_stack_ = (model.nt() / n_stab_);
+    n_stack_ = std::ceil(static_cast<double>(nt_) / n_stab_);
     isUnequalTime_ = params.getBool("simulation", "isMeasureUnequalTime");
+
+    // at the final stack, the number of time slice can be less n_stab_
+    loc_l_end_.resize(n_stack_);
+    for (int i_stack = 0; i_stack < n_stack_; ++i_stack) {
+        loc_l_end_[i_stack] = n_stab_ - 1;
+        if (i_stack == n_stack_ - 1 && nt_ % n_stab_ != 0) loc_l_end_[i_stack] = nt_ % n_stab_ - 1;
+    }
 
     // Initialize the cache for B-matrices
     int nfl = model_.n_flavor();
@@ -15,10 +22,10 @@ DQMC::DQMC(const utility::parameters& params, AttractiveHubbard& model)
     B_.resize(nfl);
     invB_.resize(nfl);
     for (auto& flavor_cache : B_) {
-        flavor_cache.resize(nt, arma::mat(ns, ns, arma::fill::zeros));
+        flavor_cache.resize(nt_, arma::mat(ns, ns, arma::fill::zeros));
     }
     for (auto& flavor_cache : invB_) {
-        flavor_cache.resize(nt, arma::mat(ns, ns, arma::fill::zeros));
+        flavor_cache.resize(nt_, arma::mat(ns, ns, arma::fill::zeros));
     }
 
     max_precision_error_ = 0.0;
@@ -82,7 +89,7 @@ arma::mat DQMC::calculate_Bbar(int i_stack, int flv, bool recalculate_cache) {
 
     arma::mat Bbar(ns, ns, arma::fill::eye);
 
-    for (int loc_l = 0; loc_l < n_stab_; loc_l++) {
+    for (int loc_l = 0; loc_l <= loc_l_end_[i_stack]; loc_l++) {
         int l = global_l(i_stack, loc_l);
         if (recalculate_cache) {
             auto expK = model_.expK(flv);
@@ -309,12 +316,14 @@ void DQMC::sweep_0_to_beta(std::vector<GF>& greens, std::vector<LDRStack>& propa
     double acc_l;
 
     int n_flavor = static_cast<int>(greens.size());
-    const int nt = model_.nt();
+
+    int loc_l_end = n_stab_ - 1;
+    if (i_stack == n_stack_ - 1 && nt_ % n_stab_ != 0) loc_l_end = nt_ % n_stab_;
 
     // Loop over time slices forward
     // We propagate our GF, from 0 to β
     // the iteration then start processing from 0 + Δτ, 0 + 2Δτ, ..., 0 + nt*Δτ (β)
-    for (int l = 0; l < nt; ++l) {
+    for (int l = 0; l < nt_; ++l) {
         // Get local time and stack index
         loc_l = local_l(l);
         i_stack = stack_idx(l);
@@ -323,10 +332,10 @@ void DQMC::sweep_0_to_beta(std::vector<GF>& greens, std::vector<LDRStack>& propa
 
         // update HS field over space given time slice
         acc_l = model_.update_time_slice(greens, l);
-        acc_rate_ += acc_l / nt;
+        acc_rate_ += acc_l / nt_;
 
         // Do the stabilization at interval time
-        if (loc_l  == n_stab_ - 1) {      
+        if (loc_l  == loc_l_end_[i_stack]) {      
             double max_error = 0.0;  
 
             for (int flv = 0; flv < n_flavor; flv++) {
@@ -428,12 +437,11 @@ void DQMC::sweep_unequalTime(std::vector<GF>& greens, std::vector<LDRStack>& pro
     int i_stack;
 
     int n_flavor = static_cast<int>(greens.size());
-    const int nt = model_.nt();
 
     stablelinalg::LDR Bt0;
     stablelinalg::LDR Bbt;
 
-    for (int l = 0; l < nt; ++l) {
+    for (int l = 0; l < nt_; ++l) {
         // Get local time and stack index
         loc_l = local_l(l);
         i_stack = stack_idx(l);
@@ -441,7 +449,7 @@ void DQMC::sweep_unequalTime(std::vector<GF>& greens, std::vector<LDRStack>& pro
         propagate_unequalTime_GF_forward(greens, l);
 
         // Do the stabilization at interval time
-        if (loc_l  == n_stab_ - 1) {      
+        if (loc_l  == loc_l_end_[i_stack]) {      
             double max_error = 0.0;  
 
             for (int flv = 0; flv < n_flavor; flv++) {
