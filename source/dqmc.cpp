@@ -358,6 +358,12 @@ void DQMC::sweep_beta_to_0(std::vector<GF>& greens, std::vector<LDRStack>& propa
 }
 
 void DQMC::sweep_unequalTime(std::vector<GF>& greens, std::vector<LDRStack>& propagation_stacks) {
+
+    // do nothing if unequalTime is not active
+    if (!isUnequalTime_) {
+        return ;
+    }
+
     int loc_l;
     int i_stack;
 

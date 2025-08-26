@@ -55,8 +55,6 @@ int main(int argc, char** argv) {
     int n_therms = params.getInt("simulation", "n_therms");
     int n_bins = params.getInt("simulation", "n_bins");
 
-    bool isUnequalTime = params.getBool("simulation", "isMeasureUnequalTime", false);
-
     // Lattice creation
     std::array<double,2> a1{{1.0, 0.0}};
     std::array<double,2> a2{{0.0, 1.0}};
@@ -97,27 +95,25 @@ int main(int argc, char** argv) {
     int n_flavor = hubbard.n_flavor(); 
 
     // DQMC simulation initialization
-    auto sim = DQMC(hubbard, n_stab);
+    DQMC sim(params, hubbard);
 
     // propagation stacks and greens initialization
     std::vector<LDRStack> propagation_stacks(n_flavor);
-    std::vector<GF>               greens(n_flavor);
-    for (int nfl = 0; nfl < n_flavor; nfl++) {
-        propagation_stacks[nfl] = sim.init_stacks(nfl);
-        greens[nfl]             = sim.init_greenfunctions(propagation_stacks[nfl]);
+    std::vector<GF>       greens(n_flavor);
+    for (int flv = 0; flv < n_flavor; flv++) {
+        propagation_stacks[flv] = sim.init_stacks(flv);
+        greens[flv]             = sim.init_greenfunctions(propagation_stacks[flv]);
     }
 
     // measurement container
-    MeasurementManager measurements(MPI_COMM_WORLD, rank);
+    MeasurementManager measurements(params, MPI_COMM_WORLD, rank);
     measurements.addScalar("density", Observables::calculate_density);
     measurements.addScalar("doubleOcc", Observables::calculate_doubleOccupancy);
     measurements.addScalar("swave", Observables::calculate_swavePairing);
     measurements.addEqualTime("densityCorr", Observables::calculate_densityCorr);
-    if (isUnequalTime) {
-        measurements.addUnequalTime("greenTau", Observables::calculate_greenTau);
-        measurements.addUnequalTime("doublonTau", Observables::calculate_doublonTau);
-        measurements.addUnequalTime("currxxTau", Observables::calculate_currxxTau);
-    }
+    measurements.addUnequalTime("greenTau", Observables::calculate_greenTau);
+    measurements.addUnequalTime("doublonTau", Observables::calculate_doublonTau);
+    measurements.addUnequalTime("currxxTau", Observables::calculate_currxxTau);
 
     // ----------------------------------------------------------------- 
     //                     Start of DQMC simulation
@@ -140,17 +136,12 @@ int main(int argc, char** argv) {
         const auto t0_bin = std::chrono::steady_clock::now();   // start timer for this bin
 
         for (int isweep = 0; isweep < n_sweeps; ++isweep) {
+
             sim.sweep_0_to_beta(greens, propagation_stacks);
-            measurements.measure(greens, lat);
-
             sim.sweep_beta_to_0(greens, propagation_stacks);
+            sim.sweep_unequalTime(greens, propagation_stacks);
             measurements.measure(greens, lat);
 
-            if (isUnequalTime) {
-                // do sweep without updating HS field for unequal time measurements.
-                sim.sweep_unequalTime(greens, propagation_stacks);
-                measurements.measure_unequalTime(greens, lat);
-            }
         }
         measurements.accumulate(lat);
 

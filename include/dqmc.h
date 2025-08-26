@@ -13,6 +13,7 @@
 
 #include <armadillo>
 
+#include <utility.h>
 #include <stackngf.h>
 #include <stablelinalg.h>
 #include <model.h>
@@ -20,6 +21,8 @@
 class DQMC {
 private:
     model::HubbardAttractiveU& model_;
+
+    bool isUnequalTime_;
 
     int n_stab_;
     int n_stack_;
@@ -54,9 +57,11 @@ private:
 public:
 
     // Constructor
-    DQMC(model::HubbardAttractiveU& model, int n_stab)
-        : model_(model), n_stab_(n_stab),
-          n_stack_(model.nt() / n_stab), acc_rate_(0.0), avg_sgn_(1.0) {}
+    DQMC(const utility::parameters& params, model::HubbardAttractiveU& model)
+        : model_(model), n_stab_(params.getInt("simulation", "n_stab")),
+          n_stack_(model.nt() / n_stab_), 
+          isUnequalTime_(params.getBool("simulation", "isMeasureUnequalTime")), 
+          acc_rate_(0.0), avg_sgn_(1.0) {}
 
     // Getters
     double acc_rate() { return acc_rate_; }

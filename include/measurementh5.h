@@ -132,6 +132,8 @@ private:
     MPI_Comm comm_;
     int rank_;
     int world_size_;
+
+    bool isUnequalTime_;
     
     int current_bin_;
     
@@ -150,8 +152,9 @@ private:
     bool file_opened_;
     
 public:
-    MeasurementManager(MPI_Comm comm, int rank) 
+    MeasurementManager(const utility::parameters& params, MPI_Comm comm, int rank) 
         : comm_(comm), rank_(rank), current_bin_(0),
+          isUnequalTime_(params.getBool("simulation", "isMeasureUnequalTime")), 
           scalarCount_(0), eqTimeCount_(0), uneqTimeCount_(0),
           file_opened_(false) {
         MPI_Comm_size(comm_, &world_size_);
@@ -178,6 +181,9 @@ public:
     
     void addUnequalTime(const std::string& name,
                         std::function<arma::cube(const std::vector<GF>&, const Lattice&)> calculator) {
+        if (!isUnequalTime_) {
+            return;
+        }
         uneqTimeNames_.push_back(name);
         uneqTimeCalculators_.push_back(calculator);
     }
@@ -203,23 +209,23 @@ public:
             }
         }
         eqTimeCount_++;
-    }
-    
-    void measure_unequalTime(const std::vector<GF>& greens, const Lattice& lat) {
+
         // Measure unequal-time observables
-        if (uneqTimeData_.size() != uneqTimeCalculators_.size()) {
-            uneqTimeData_.resize(uneqTimeCalculators_.size());
-        }
-        
-        for (size_t i = 0; i < uneqTimeCalculators_.size(); ++i) {
-            arma::cube result = uneqTimeCalculators_[i](greens, lat);
-            if (uneqTimeData_[i].n_rows == 0) {
-                uneqTimeData_[i] = result;
-            } else {
-                uneqTimeData_[i] += result;
+        if (isUnequalTime_) {
+            if (uneqTimeData_.size() != uneqTimeCalculators_.size()) {
+                uneqTimeData_.resize(uneqTimeCalculators_.size());
             }
+            
+            for (size_t i = 0; i < uneqTimeCalculators_.size(); ++i) {
+                arma::cube result = uneqTimeCalculators_[i](greens, lat);
+                if (uneqTimeData_[i].n_rows == 0) {
+                    uneqTimeData_[i] = result;
+                } else {
+                    uneqTimeData_[i] += result;
+                }
+            }
+            uneqTimeCount_++;
         }
-        uneqTimeCount_++;
     }
     
     void accumulate(const Lattice& lat) {
