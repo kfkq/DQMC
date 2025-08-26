@@ -21,6 +21,10 @@ DQMC::DQMC(const utility::parameters& params, AttractiveHubbard& model)
         flavor_cache.resize(nt, arma::mat(ns, ns, arma::fill::zeros));
     }
 
+    max_precision_error_ = 0.0;
+    total_precision_error_ = 0.0;
+    num_cumulated_precision_error_ = 0.0;
+
 }
 
 /* --------------------------------------------------------------------------------
@@ -277,7 +281,13 @@ double DQMC::check_error(const arma::mat& Gtt_temp, const arma::mat& Gtt) {
     / Check the error between the two Green's function matrices
     /   return: max|Gtt_temp - Gtt| (element-wise maximum absolute difference)
     */
-    return arma::max(arma::max(arma::abs(Gtt_temp - Gtt)));
+    double error = arma::max(arma::max(arma::abs(Gtt_temp - Gtt)));
+    
+    if (error > max_precision_error_) max_precision_error_ = error;
+    total_precision_error_ += error;
+    num_cumulated_precision_error_++;
+
+    return error;
 }
 
 /* --------------------------------------------------------------------------------

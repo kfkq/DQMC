@@ -34,6 +34,11 @@ private:
     
     double acc_rate_;
     double avg_sgn_;
+
+    // for precision tracking
+    double max_precision_error_;
+    double total_precision_error_;
+    double num_cumulated_precision_error_;
     
     // Helper functions
     inline int global_l(int stack_idx, int loc_l) const { return stack_idx * n_stab_ + loc_l;  }
@@ -69,6 +74,8 @@ public:
 
     // Getters
     double acc_rate() { return acc_rate_; }
+    double max_err() { return max_precision_error_; }
+    double mean_err() { return total_precision_error_ / num_cumulated_precision_error_; }
 
     // most important initialization before sweeps
     LDRStack init_stacks(int flv);

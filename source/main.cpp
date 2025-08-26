@@ -136,8 +136,8 @@ int main(int argc, char** argv) {
         utility::io::print_info(
             "DQMC measurement sweeps are finished in ",
             h, " hours ", m, " minutes ", s, " seconds.\n"
-            "Average acceptance rate = ",
-            std::fixed, std::setprecision(4), total_acc_rate, '\n'
+            "Average acceptance rate = ", std::fixed, std::setprecision(4), total_acc_rate, '\n',
+            "Max, Mean Precision Error = ", std::scientific, std::setprecision(4), sim.max_err(), ", ", sim.mean_err(), '\n'
         );
     }
 
