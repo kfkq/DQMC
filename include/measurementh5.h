@@ -19,15 +19,13 @@ namespace transform {
     // Simplified version that returns an arma::cube instead of DataRow vector
     inline arma::cube chi_site_to_chi_r(const arma::cube& chi_site, const Lattice& lat) {
         const int n_orb = lat.n_orb();
-        const int Lx = lat.Lx();
-        const int Ly = lat.Ly();
+        const int L1 = lat.L1();
+        const int L2 = lat.L2();
         const int n_cells = lat.n_cells();
         const int n_tau = chi_site.n_slices;
 
-        // Determine the size of the output cube
-        // For simplicity, we'll use a fixed size based on Lx and Ly
-        const int dx_size = Lx;
-        const int dy_size = Ly;
+        const int dx_size = L1;
+        const int dy_size = L2;
         const int orb_size = n_orb * n_orb;
         
         // Create output cube
@@ -46,18 +44,18 @@ namespace transform {
                 const int b = j % n_orb;
                 const int cell_i = i / n_orb;
                 const int cell_j = j / n_orb;
-                const int cxi = cell_i % Lx;
-                const int cyi = cell_i / Lx;
-                const int cxj = cell_j % Lx;
-                const int cyj = cell_j / Lx;
+                const int cxi = cell_i % L1;
+                const int cyi = cell_i / L1;
+                const int cxj = cell_j % L1;
+                const int cyj = cell_j / L1;
 
                 int raw_dx = cxj - cxi;
-                int dx_pbc = transform::pbc_shortest(raw_dx, Lx);
+                int dx_pbc = transform::pbc_shortest(raw_dx, L1);
                 int raw_dy = cyj - cyi;
-                int dy_pbc = transform::pbc_shortest(raw_dy, Ly);
+                int dy_pbc = transform::pbc_shortest(raw_dy, L2);
 
-                int dx_idx = dx_pbc + Lx/2 - 1;
-                int dy_idx = dy_pbc + Ly/2 - 1;
+                int dx_idx = dx_pbc + L1/2 - 1;
+                int dy_idx = dy_pbc + L2/2 - 1;
                 
                 // flattening a, b index to tau index.
                 result(dx_idx, dy_idx, (a*n_orb + b)*n_tau + tau) += val / n_cells;
@@ -86,24 +84,24 @@ namespace transform {
         const int ny = chi_r.n_cols;
         const int n_orb = lat.n_orb();
 
-        const int Lx = lat.Lx();
-        const int Ly = lat.Ly();
+        const int L1 = lat.L1();
+        const int L2 = lat.L2();
         const auto& a1 = lat.a1();
         const auto& a2 = lat.a2();
 
         // Initialize complex cube with proper dimensions
-        arma::cx_cube chi_k(Lx, Ly, nt);
+        arma::cx_cube chi_k(L1, L2, nt);
         chi_k.zeros();
 
         for (int kidx = 0; kidx < nk; ++kidx) {
             const auto& k = kpts[kidx];
-            int kx_idx = kidx / Lx;
-            int ky_idx = kidx % Ly;
+            int kx_idx = kidx / L1;
+            int ky_idx = kidx % L2;
             for (int t_idx = 0; t_idx < nt; ++t_idx) {
                 for (int x_idx = 0; x_idx < nx; ++x_idx) {
                     for (int y_idx = 0; y_idx < ny; ++y_idx) {
-                        double dx = (x_idx - (Lx/2 - 1)) * a1[0] + (y_idx - (Ly/2 - 1)) * a2[0];
-                        double dy = (x_idx - (Lx/2 - 1)) * a1[1] + (y_idx - (Ly/2 - 1)) * a2[1];
+                        double dx = (x_idx - (L1/2 - 1)) * a1[0] + (y_idx - (L2/2 - 1)) * a2[0];
+                        double dy = (x_idx - (L1/2 - 1)) * a1[1] + (y_idx - (L2/2 - 1)) * a2[1];
 
                         double phase = k[0] * dx + k[1] * dy;
 

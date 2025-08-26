@@ -49,32 +49,8 @@ int main(int argc, char** argv) {
     std::vector<std::array<double,2>> orbs{{{0.0, 0.0}}};
     Lattice lat(params, a1, a2, orbs);
 
-    // Save lattice information for analysis
-    if (rank == master) {
-        // Create results directory if it doesn't exist
-        struct stat info;
-        if (stat("results", &info) != 0) {
-            #if defined(_WIN32)
-            _mkdir("results");
-            #else
-            mkdir("results", 0755);
-            #endif
-        }
-        
-        // Write lattice info to file
-        std::string info_file = "results/info";
-        std::ofstream info_out(info_file);
-        if (info_out.is_open()) {
-            info_out << "L1 " << params.getInt("Lattice", "L1")  << "\n";
-            info_out << "L2 " << params.getInt("Lattice", "L2")  << "\n";
-            info_out << "a1_x " << a1[0] << "\n";
-            info_out << "a1_y " << a1[1] << "\n";
-            info_out << "a2_x " << a2[0] << "\n";
-            info_out << "a2_y " << a2[1] << "\n";
-            info_out << "n_orb " << lat.n_orb() << "\n";
-            info_out.close();
-        }
-    }
+    // Save lattice information for analysis scripts
+    if (rank == master) lat.save_info("results/info");
 
     // Model initialization
     AttractiveHubbard model(params, lat, rng);
@@ -118,8 +94,9 @@ int main(int argc, char** argv) {
 
     // measurement sweeps
     double local_time = 0.0;
-    for (int ibin = 0; ibin < n_bins; ++ibin) {
-        const auto t0_bin = std::chrono::steady_clock::now();   // start timer for this bin
+    const auto t0_bin = std::chrono::steady_clock::now(); 
+
+    for (int ibin = 0; ibin < n_bins; ++ibin) { 
 
         for (int isweep = 0; isweep < n_sweeps; ++isweep) {
 
@@ -129,11 +106,12 @@ int main(int argc, char** argv) {
             measurements.measure(greens, lat);
 
         }
-        measurements.accumulate(lat);
 
-        local_time += std::chrono::duration<double>(
-            std::chrono::steady_clock::now() - t0_bin).count();
+        measurements.accumulate(lat);
     }
+
+    local_time = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - t0_bin).count();
     
     // ----------------------------------------------------------------- 
     //                         Finalization
@@ -141,7 +119,12 @@ int main(int argc, char** argv) {
 
     // Computational time details
     double total_time = 0.0;
+
+    double local_acc_rate = sim.acc_rate() / (n_bins * 2.0 * n_sweeps + 2.0 * n_therms); // two comes from sweep back and forth in timeslice
+    double total_acc_rate = 0.0;
+
     MPI_Reduce(&local_time, &total_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_acc_rate, &total_acc_rate, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 
     {
         const double avg_per_sweep = total_time / (n_bins * n_sweeps * world_size);
@@ -154,8 +137,7 @@ int main(int argc, char** argv) {
             "DQMC measurement sweeps are finished in ",
             h, " hours ", m, " minutes ", s, " seconds.\n"
             "Average acceptance rate = ",
-            std::fixed, std::setprecision(4),
-            sim.acc_rate() / (2.0 * (n_bins * n_sweeps + n_therms)), '\n'
+            std::fixed, std::setprecision(4), total_acc_rate, '\n'
         );
     }
 

@@ -189,8 +189,8 @@ double calculate_density(const std::vector<GF>&  greens, const Lattice& lat)
     *   <n_{iσ}> = 1 - <c_{iσ} c_{iσ}^†> = 1 - G_{iσ,iσ},
     */
 
-    int Lx = lat.Lx();
-    int Ly = lat.Ly();
+    int Lx = lat.L1();
+    int Ly = lat.L2();
     int lat_size = lat.n_cells(); 
     int n_sites  = lat.n_sites();
 
@@ -217,8 +217,8 @@ double calculate_doubleOccupancy(const std::vector<GF>&  greens, const Lattice& 
     *   <D> = (1/N) Σ_i <n_{i↑} n_{i↓}>,
     */
 
-    int Lx = lat.Lx();
-    int Ly = lat.Ly();
+    int Lx = lat.L1();
+    int Ly = lat.L2();
     int lat_size = lat.n_cells(); 
     int n_sites  = lat.n_sites();
 
@@ -250,8 +250,8 @@ double calculate_swavePairing(const std::vector<GF>&  greens, const Lattice& lat
     *   <Δ_i^† Δ_j> = (δ_{ji} - G↑_{j,i}) (δ_{ji} - G↑_{j,i})
     */
 
-    int Lx = lat.Lx();
-    int Ly = lat.Ly();
+    int Lx = lat.L1();
+    int Ly = lat.L2();
     int lat_size = lat.n_cells(); 
     int n_sites  = lat.n_sites();
 
@@ -304,8 +304,8 @@ arma::mat calculate_densityCorr(const std::vector<GF>& greens, const Lattice& la
 }
 
 arma::cube calculate_greenTau(const std::vector<GF>& greens, const Lattice& lat) {
-    int Lx = lat.Lx();
-    int Ly = lat.Ly();
+    int Lx = lat.L1();
+    int Ly = lat.L2();
     int lat_size = lat.n_cells(); 
     int n_sites  = lat.n_sites();
     int n_tau = greens[0].Gtt.size();
@@ -330,8 +330,8 @@ arma::cube calculate_greenTau(const std::vector<GF>& greens, const Lattice& lat)
 }
 
 arma::cube calculate_doublonTau(const std::vector<GF>& greens, const Lattice& lat) {
-    int Lx = lat.Lx();
-    int Ly = lat.Ly();
+    int Lx = lat.L1();
+    int Ly = lat.L2();
     int lat_size = lat.n_cells(); 
     int n_sites  = lat.n_sites();
     int n_tau = greens[0].Gtt.size();
@@ -360,8 +360,8 @@ arma::cube calculate_doublonTau(const std::vector<GF>& greens, const Lattice& la
 }
 
 arma::cube calculate_currxxTau(const std::vector<GF>& greens, const Lattice& lat) {
-    int Lx = lat.Lx();
-    int Ly = lat.Ly();
+    int Lx = lat.L1();
+    int Ly = lat.L2();
     int lat_size = lat.n_cells(); 
     int n_sites  = lat.n_sites();
     int n_tau = greens[0].Gtt.size();

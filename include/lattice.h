@@ -52,8 +52,8 @@ public:
     /* ---------- basic info ---------- */
     int n_cells() const noexcept { return L1_ * L2_; }
     int n_sites() const noexcept { return L1_ * L2_ * n_orb_; }
-    const int& Lx() const noexcept { return L1_; }
-    const int& Ly() const noexcept { return L2_; }
+    const int& L1() const noexcept { return L1_; }
+    const int& L2() const noexcept { return L2_; }
     const int& n_orb() const noexcept { return n_orb_; }
 
     const std::array<double,2>& a1() const noexcept { return a1_; }                                                                                                                                                    
@@ -104,5 +104,34 @@ public:
         int tx = ((ux+delta[0])%L1_+L1_)%L1_;
         int ty = ((uy+delta[1])%L2_+L2_)%L2_;
         return (ty*L1_+tx)*n_orb_+orb;
+    }
+
+    // Save lattice info to file
+    void save_info(const std::string& filename) const {        
+        // Create directory if it doesn't exist
+        std::string dir = filename.substr(0, filename.find_last_of("/\\"));
+        if (!dir.empty()) {
+            struct stat info;
+            if (stat(dir.c_str(), &info) != 0) {
+                #if defined(_WIN32)
+                _mkdir(dir.c_str());
+                #else
+                mkdir(dir.c_str(), 0755);
+                #endif
+            }
+        }
+        
+        // Write lattice info to file
+        std::ofstream info_out(filename);
+        if (info_out.is_open()) {
+            info_out << "L1 " << L1() << "\n";
+            info_out << "L2 " << L2() << "\n";
+            info_out << "n_orb " << n_orb() << "\n";
+            info_out << "a1_x " << a1()[0] << "\n";
+            info_out << "a1_y " << a1()[1] << "\n";
+            info_out << "a2_x " << a2()[0] << "\n";
+            info_out << "a2_y " << a2()[1] << "\n";
+            info_out.close();
+        }
     }
 };
