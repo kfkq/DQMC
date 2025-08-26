@@ -12,19 +12,15 @@ LDRStack DQMC::init_stacks(int flv) {
     B_.resize(model_.nt(), arma::mat(model_.ns(), model_.ns()));
     invB_.resize(model_.nt(), arma::mat(model_.ns(), model_.ns()));
 
-    arma::mat Bprod(model_.ns(), model_.ns());
-
     for (int i_stack = n_stack_ - 1; i_stack >= 0; i_stack--) {
-        Bprod.eye();
+        auto Bbar = calculate_Bbar(i_stack, flv);
 
-        calculate_Bproduct(Bprod, i_stack, flv);
-
-        stablelinalg::LDR Bbar = stablelinalg::to_LDR(Bprod);
+        stablelinalg::LDR Bbar_ldr = stablelinalg::to_LDR(Bbar);
         
         if (i_stack == n_stack_ - 1) {
-            propagation_stack[i_stack] = Bbar;
+            propagation_stack[i_stack] = Bbar_ldr;
         } else {
-            propagation_stack[i_stack] = stablelinalg::ldr_mul_ldr(propagation_stack[i_stack + 1], Bbar);
+            propagation_stack[i_stack] = stablelinalg::ldr_mul_ldr(propagation_stack[i_stack + 1], Bbar_ldr);
         }
     }
 
@@ -44,15 +40,19 @@ GF DQMC::init_greenfunctions(LDRStack& propagation_stack) {
     return greens;
 }
 
-void DQMC::calculate_Bproduct(arma::mat& Bprod, int i_stack, int flv, bool recalculate_cache) {
-    
+arma::mat DQMC::calculate_Bbar(int i_stack, int flv, bool recalculate_cache) {
+    int ns = model_.ns();
+
+    arma::mat Bbar(ns, ns, arma::fill::eye);
+
     for (int loc_l = 0; loc_l < n_stab_; loc_l++) {
         int l = global_l(i_stack, loc_l);
         if (recalculate_cache) {
             B_[l] = model_.calc_B(l, flv);
         }
-        Bprod = B_[l] * Bprod;
+        Bbar = B_[l] * Bbar;
     }
+    return Bbar;
 }
 
 /* --------------------------------------------------------------------------------
@@ -239,8 +239,6 @@ void DQMC::sweep_0_to_beta(std::vector<GF>& greens, std::vector<LDRStack>& propa
     int n_flavor = static_cast<int>(greens.size());
     const int nt = model_.nt();
 
-    std::vector<arma::mat> Bprods(n_flavor, arma::mat(model_.ns(), model_.ns()));
-
     // Loop over time slices forward
     // We propagate our GF, from 0 to β
     // the iteration then start processing from 0 + Δτ, 0 + 2Δτ, ..., 0 + nt*Δτ (β)
@@ -262,16 +260,14 @@ void DQMC::sweep_0_to_beta(std::vector<GF>& greens, std::vector<LDRStack>& propa
             double max_error = 0.0;  
 
             for (int flv = 0; flv < n_flavor; flv++) {
-                Bprods[flv].eye();
-
                 // save naive propagation equal time Green's function
                 arma::mat Gtt_temp = greens[flv].Gtt[l+1];
 
                 // Calculate Bprod
-                calculate_Bproduct(Bprods[flv], i_stack, flv);
+                auto Bbar = calculate_Bbar(i_stack, flv);
 
                 // Update stacks
-                update_stack_forward(propagation_stacks[flv], Bprods[flv], i_stack);
+                update_stack_forward(propagation_stacks[flv], Bbar, i_stack);
 
                 // Calculated Green's function at the end of local time within stack
                 stabilize_GF_forward(greens[flv], propagation_stacks[flv], l);
@@ -306,8 +302,6 @@ void DQMC::sweep_beta_to_0(std::vector<GF>& greens, std::vector<LDRStack>& propa
     int n_flavor = static_cast<int>(greens.size());
     const int nt = model_.nt();
 
-    std::vector<arma::mat> Bprods(n_flavor, arma::mat(model_.ns(), model_.ns()));
-
     // Loop over time slices in reverse
     // the iteration is not starting from β, but β - Δτ
     // β - Δτ, β - 2Δτ, ..., 0
@@ -329,16 +323,14 @@ void DQMC::sweep_beta_to_0(std::vector<GF>& greens, std::vector<LDRStack>& propa
             double max_error = 0.0;     
 
             for (int flv = 0; flv < n_flavor; flv++) {
-                Bprods[flv].eye();
-
                 // save naive propagation equal time Green's function
                 arma::mat Gtt_temp = greens[flv].Gtt[l];
 
                 // Calculate Bprod
-                calculate_Bproduct(Bprods[flv], i_stack, flv);
+                auto Bbar = calculate_Bbar(i_stack, flv);
 
                 // Update stacks
-                update_stack_backward(propagation_stacks[flv], Bprods[flv], i_stack);
+                update_stack_backward(propagation_stacks[flv], Bbar, i_stack);
 
                 // Calculate Green's functions at the beginning of local time within stack
                 stabilize_GF_backward(greens[flv], propagation_stacks[flv], l);
@@ -370,7 +362,6 @@ void DQMC::sweep_unequalTime(std::vector<GF>& greens, std::vector<LDRStack>& pro
     int n_flavor = static_cast<int>(greens.size());
     const int nt = model_.nt();
 
-    std::vector<arma::mat> Bprods(n_flavor, arma::mat(model_.ns(), model_.ns()));
     stablelinalg::LDR Bt0;
     stablelinalg::LDR Bbt;
 
@@ -388,18 +379,16 @@ void DQMC::sweep_unequalTime(std::vector<GF>& greens, std::vector<LDRStack>& pro
             double max_error = 0.0;  
 
             for (int flv = 0; flv < n_flavor; flv++) {
-                Bprods[flv].eye();
-
                 // save naive propagation equal time Green's function
                 arma::mat Gtt_temp = greens[flv].Gtt[l+1];
                 arma::mat Gt0_temp = greens[flv].Gt0[l+1];
                 arma::mat G0t_temp = greens[flv].G0t[l+1];
 
                 // Calculate Bprod
-                calculate_Bproduct(Bprods[flv], i_stack, flv, false);
+                auto Bbar = calculate_Bbar(i_stack, flv, false);
 
                 // Update stacks
-                propagate_Bt0_Bbt(Bt0, Bbt, propagation_stacks[flv], Bprods[flv], i_stack);
+                propagate_Bt0_Bbt(Bt0, Bbt, propagation_stacks[flv], Bbar, i_stack);
 
                 // Calculated Green's function at the end of local time within stack
                 stabilize_unequalTime(greens[flv], Bt0, Bbt, l);

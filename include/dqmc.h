@@ -38,7 +38,7 @@ private:
     inline int stack_idx(int l) const { return l / n_stab_; }
     inline int local_l(int l) const { return l % n_stab_; }
 
-    void calculate_Bproduct(arma::mat& Bprod, int stack_idx, int nfl, bool recalculate_cache = true);
+    arma::mat calculate_Bbar(int stack_idx, int nfl, bool recalculate_cache = true);
 
     void propagate_GF_forward(GF& greens, int l, int nfl);
     void update_stack_forward(LDRStack& propagation_stack, arma::mat& Bprod, int i_stack);
