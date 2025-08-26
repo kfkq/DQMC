@@ -21,7 +21,7 @@ namespace transform {
         const int n_orb = lat.n_orb();
         const int Lx = lat.Lx();
         const int Ly = lat.Ly();
-        const int n_cells = lat.size();
+        const int n_cells = lat.n_cells();
         const int n_tau = chi_site.n_slices;
 
         // Determine the size of the output cube

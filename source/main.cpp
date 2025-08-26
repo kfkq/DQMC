@@ -39,11 +39,6 @@ int main(int argc, char** argv) {
     // parse parameters file
     utility::parameters params("parameters.in");
 
-    // lattice parameters
-    std::string latt_type = params.getString("lattice", "type");
-    int Lx = params.getInt("lattice", "Lx");
-    int Ly = params.getInt("lattice", "Ly");
-
     // hubbard model parameters
     double t = params.getDouble("hubbard", "t");
     double U = params.getDouble("hubbard", "U");
@@ -66,7 +61,7 @@ int main(int argc, char** argv) {
     std::array<double,2> a1{{1.0, 0.0}};
     std::array<double,2> a2{{0.0, 1.0}};
     std::vector<std::array<double,2>> orbs{{{0.0, 0.0}}};
-    Lattice lat = Lattice::create_lattice(a1, a2, orbs, Lx, Ly);
+    Lattice lat(params, a1, a2, orbs);
 
     // Save lattice information for analysis
     if (rank == master) {
@@ -84,8 +79,8 @@ int main(int argc, char** argv) {
         std::string info_file = "results/info";
         std::ofstream info_out(info_file);
         if (info_out.is_open()) {
-            info_out << "Lx " << Lx << "\n";
-            info_out << "Ly " << Ly << "\n";
+            info_out << "L1 " << params.getInt("Lattice", "L1")  << "\n";
+            info_out << "L2 " << params.getInt("Lattice", "L2")  << "\n";
             info_out << "a1_x " << a1[0] << "\n";
             info_out << "a1_y " << a1[1] << "\n";
             info_out << "a2_x " << a2[0] << "\n";
@@ -111,24 +106,6 @@ int main(int argc, char** argv) {
         propagation_stacks[nfl] = sim.init_stacks(nfl);
         greens[nfl]             = sim.init_greenfunctions(propagation_stacks[nfl]);
     }
-
-    utility::io::print_info(
-        "-------- Hamiltonian Parameters -------- \n"
-        "Hamiltonian name       : Attractive Hubbard \n",
-        "Lattice                : ", latt_type, " ", Lx, "×", Ly, '\n',
-        "t                      : ", t, '\n',
-        "U                      : ", U, '\n',
-        "mu                     : ", mu, '\n',
-        "β                      : ", beta, '\n',
-        "------ Numerical & QMC Parameters ------ \n"
-        "Trotter Discretization : ", dtau, '\n',
-        "N of Imaginary Time    : ", nt, '\n',
-        "Stabilization interval : ", n_stab, '\n',
-        "N thermalization sweeps: ", n_therms, '\n',
-        "N sweeps per bin       : ", n_sweeps, '\n',
-        "N bins                 : ", n_bins, "\n"
-        "Measure UnequalTime ?  : ", isUnequalTime, "\n\n"
-    );
 
     // measurement container
     MeasurementManager measurements(MPI_COMM_WORLD, rank);

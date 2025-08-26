@@ -340,16 +340,16 @@ def convert_r_indices_to_physical(x_idx, y_idx, lattice_info):
     Returns:
         tuple: (rx, ry) physical positions
     """
-    Lx = lattice_info['Lx']
-    Ly = lattice_info['Ly']
+    L1 = lattice_info['L1']
+    L2 = lattice_info['L2']
     a1_x = lattice_info['a1_x']
     a1_y = lattice_info['a1_y']
     a2_x = lattice_info['a2_x']
     a2_y = lattice_info['a2_y']
     
     # Convert indices to physical positions
-    dx_phys = (x_idx - (Lx/2 - 1)) * a1_x + (y_idx - (Ly/2 - 1)) * a2_x
-    dy_phys = (x_idx - (Lx/2 - 1)) * a1_y + (y_idx - (Ly/2 - 1)) * a2_y
+    dx_phys = (x_idx - (L1/2 - 1)) * a1_x + (y_idx - (L2/2 - 1)) * a2_x
+    dy_phys = (x_idx - (L1/2 - 1)) * a1_y + (y_idx - (L2/2 - 1)) * a2_y
     
     return dx_phys, dy_phys
 
@@ -366,8 +366,8 @@ def convert_k_indices_to_physical(kx_idx, ky_idx, lattice_info):
     Returns:
         tuple: (kx, ky) physical k-vectors
     """
-    Lx = lattice_info['Lx']
-    Ly = lattice_info['Ly']
+    L1 = lattice_info['L1']
+    L2 = lattice_info['L2']
     
     # Compute reciprocal lattice vectors
     a1_x = lattice_info['a1_x']
@@ -379,15 +379,15 @@ def convert_k_indices_to_physical(kx_idx, ky_idx, lattice_info):
     det = a1_x * a2_y - a1_y * a2_x
     
     # Compute reciprocal lattice vectors
-    b1_x = 2 * np.pi * a2_y / det / Lx
-    b1_y = -2 * np.pi * a2_x / det / Lx
-    b2_x = -2 * np.pi * a1_y / det / Ly
-    b2_y = 2 * np.pi * a1_x / det / Ly
+    b1_x = 2 * np.pi * a2_y / det / L1
+    b1_y = -2 * np.pi * a2_x / det / L1
+    b2_x = -2 * np.pi * a1_y / det / L2
+    b2_y = 2 * np.pi * a1_x / det / L2
     
     # Convert indices to physical k-vectors
     # k-points are shifted to (-π, π] : range −L/2+1 … L/2
-    qx = kx_idx - (Lx // 2) + 1
-    qy = ky_idx - (Ly // 2) + 1
+    qx = kx_idx - (L1 // 2) + 1
+    qy = ky_idx - (L2 // 2) + 1
     
     kx_phys = qx * b1_x + qy * b2_x
     ky_phys = qx * b1_y + qy * b2_y
@@ -558,14 +558,14 @@ def analyze_observables(scalar_data, eqtime_data_r=None, eqtime_data_k=None,
                     
                     # Find the indices corresponding to rx=0, ry=0
                     # For a square lattice with PBC, rx=0, ry=0 corresponds to x=Lx/2-1, y=Ly/2-1
-                    Lx = lattice_info['Lx']
-                    Ly = lattice_info['Ly']
-                    x0 = Lx // 2 - 1
-                    y0 = Ly // 2 - 1
+                    L1 = lattice_info['L1']
+                    L2 = lattice_info['L2']
+                    x0 = L1 // 2 - 1
+                    y0 = L2 // 2 - 1
                     
                     # Make sure indices are within bounds
-                    x0 = max(0, min(x0, Lx - 1))
-                    y0 = max(0, min(y0, Ly - 1))
+                    x0 = max(0, min(x0, L1 - 1))
+                    y0 = max(0, min(y0, L2 - 1))
                     
                     # Extract data at rx=0, ry=0
                     mean_r0 = mean[x0, y0, :]
