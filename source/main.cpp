@@ -39,18 +39,6 @@ int main(int argc, char** argv) {
     // parse parameters file
     utility::parameters params("parameters.in");
 
-    // hubbard model parameters
-    double t = params.getDouble("hubbard", "t");
-    double U = params.getDouble("hubbard", "U");
-    double mu = params.getDouble("hubbard", "mu");
-
-    // dqmc simulation parameters
-    double beta = params.getDouble("simulation", "beta");
-    int nt = params.getInt("simulation", "nt");
-    double dtau = beta / nt;
-
-    int n_stab = params.getInt("simulation", "n_stab");
-
     int n_sweeps = params.getInt("simulation", "n_sweeps");
     int n_therms = params.getInt("simulation", "n_therms");
     int n_bins = params.getInt("simulation", "n_bins");
@@ -89,13 +77,11 @@ int main(int argc, char** argv) {
     }
 
     // Model initialization
-    auto hubbard = model::HubbardAttractiveU(lat, t, U, mu, dtau, nt, rng);
-    
-    // model dependent DQMC factorization. Hubbard model are factorized by spin index.
-    int n_flavor = hubbard.n_flavor(); 
+    AttractiveHubbard model(params, lat, rng);
+    int n_flavor = model.n_flavor();
 
     // DQMC simulation initialization
-    DQMC sim(params, hubbard);
+    DQMC sim(params, model);
 
     // propagation stacks and greens initialization
     std::vector<LDRStack> propagation_stacks(n_flavor);

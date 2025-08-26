@@ -13,67 +13,55 @@
 #include <lattice.h>
 #include <utility.h>
 
-namespace model {
+class AttractiveHubbard {
+    private:
+        // Model parameters
+        double t_;        // hopping parameter
+        double U_;        // interaction strength
+        double mu_;       // chemical potential
+        double dtau_;     // imaginary time step
+        double alpha_;    // Hubbard-Stratonovich coupling
+        double n_flavor_; // Number of factorized DQMC product (spin)
+        
+        // Lattice info
+        int ns_;     // number of lattice sites
+        int nt_;       // number of time slices
+        
+        // Matrices
+        arma::mat expK_; 
+        arma::mat invexpK_; 
+        arma::vec expV_;
 
-    // Type aliases for better readability
-    using Matrix = arma::mat;
-    using Vector = arma::vec;
-    using IMatrix = arma::imat;
-    using GreenFunc = arma::mat;
+        //GHQField
+        arma::vec gamma_;
+        arma::vec eta_;
+        arma::imat fields_;
+        
+        // Random number generator
+        utility::random& rng_;
 
-    class HubbardAttractiveU {
-        private:
-            // Model parameters
-            double t_;        // hopping parameter
-            double U_;        // interaction strength
-            double mu_;       // chemical potential
-            double dtau_;     // imaginary time step
-            double alpha_;    // Hubbard-Stratonovich coupling
-            double n_flavor_; // Number of factorized DQMC product (spin)
-            
-            // Lattice info
-            const int ns_;     // number of lattice sites
-            const int nt_;       // number of time slices
-            
-            // Matrices
-            Matrix expK_; 
-            Matrix invexpK_; 
-            Vector expV_;
+        void init_expK(const Lattice& lat);
+        void init_GHQfields();
 
-            //GHQField
-            arma::vec gamma_;
-            arma::vec eta_;
-            IMatrix fields_;
-            
-            // Random number generator
-            utility::random& rng_;
+    public:
+        AttractiveHubbard(const utility::parameters& params,
+                        const Lattice& lat, utility::random& rng);
 
-            void init_expK(const Lattice& lat);
-            void init_GHQfields();
+        // Getters
+        const arma::mat& expK() const { return expK_; }
+        const arma::imat& fields() const { return fields_; }
+        int nt() const { return nt_; }
+        int ns() const { return ns_; }
+        int n_flavor() const { return n_flavor_; }
 
-        public:
-            HubbardAttractiveU(const Lattice& lat, 
-                            double t, double U, double mu, 
-                            double dtau, int nt,
-                            utility::random& rng);
+        // Functions that will be used in the simulation
+        arma::mat calc_B(int t, int nfl);
+        arma::mat calc_invB(int t, int nfl);
 
-            // Getters
-            const Matrix& expK() const { return expK_; }
-            const IMatrix& fields() const { return fields_; }
-            int nt() const { return nt_; }
-            int ns() const { return ns_; }
-            int n_flavor() const { return n_flavor_; }
-
-            // Functions that will be used in the simulation
-            Matrix calc_B(int t, int nfl);
-            Matrix calc_invB(int t, int nfl);
-
-            double acceptance_ratio(GreenFunc& Gtt, double delta, int i);
-            void update_greens(GreenFunc& gtt, double delta, int i);
-            double update_time_slice(std::vector<GF>& greens, int l);
-    };
-
-} // namespace model
+        double acceptance_ratio(arma::mat& Gtt, double delta, int i);
+        void update_greens(arma::mat& gtt, double delta, int i);
+        double update_time_slice(std::vector<GF>& greens, int l);
+};
 
 namespace Observables {
     double calculate_density(const std::vector<GF>& greens, const Lattice& lat);

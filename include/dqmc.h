@@ -20,7 +20,7 @@
 
 class DQMC {
 private:
-    model::HubbardAttractiveU& model_;
+    AttractiveHubbard& model_;
 
     bool isUnequalTime_;
 
@@ -57,7 +57,7 @@ private:
 public:
 
     // Constructor
-    DQMC(const utility::parameters& params, model::HubbardAttractiveU& model)
+    DQMC(const utility::parameters& params, AttractiveHubbard& model)
         : model_(model), n_stab_(params.getInt("simulation", "n_stab")),
           n_stack_(model.nt() / n_stab_), 
           isUnequalTime_(params.getBool("simulation", "isMeasureUnequalTime")), 
