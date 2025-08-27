@@ -20,14 +20,10 @@ class GHQField {
 
         // The discrete field variables {s_i(l)}
         arma::imat fields_;
-
-        // A reference to a random number generator
-        utility::random& rng_;
-
     public:
         // Constructor
-        GHQField(int nt, int nv, utility::random& rng)
-            : rng_(rng)
+        GHQField() = default;
+        GHQField(int nt, int nv, utility::random rng)
         {    
             // Gamma and Eta are properties of the GHQ decomposition itself,
             gamma_.set_size(4);
@@ -57,7 +53,7 @@ class GHQField {
             
             std::uniform_int_distribution<int> dist(0, 3);
             for (arma::uword i = 0; i < fields_.n_elem; ++i) {
-                fields_(i) = dist(rng_.get_generator());
+                fields_(i) = dist(rng.get_generator());
             }
         }
 
@@ -77,11 +73,11 @@ class GHQField {
             fields_ = new_fields;
         }
 
-        int propose_new_field(int old_field) const {
+        int propose_new_field(int old_field, utility::random rng) const {
             // This implementation is for a 4-state discrete field.
             // It proposes one of the other 3 states with equal probability.
             std::uniform_int_distribution<int> dist(0, 2);
-            int propose_field = dist(rng_.get_generator());
+            int propose_field = dist(rng.get_generator());
 
             return proposal_(old_field, propose_field);
         }

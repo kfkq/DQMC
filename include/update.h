@@ -21,7 +21,7 @@ namespace update {
             int i = field_order[idx];
 
             int old_field = field.single_val(l, i);
-            int new_field = field.propose_new_field(old_field);
+            int new_field = field.propose_new_field(old_field, rng);
 
             auto [R, delta] = model.local_update_ratio(GF, l, i, new_field);
 

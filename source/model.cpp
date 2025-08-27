@@ -10,7 +10,7 @@ AttractiveHubbard::AttractiveHubbard(
     const utility::parameters& params,
     const Lattice& lat,
     utility::random& rng
-) : rng_(rng), fields_(GHQField(params.getDouble("simulation", "nt"), lat.n_cells(), rng))
+) : rng_(rng)
 {    
     //
     t_  = params.getDouble("hubbard", "t");
@@ -21,6 +21,8 @@ AttractiveHubbard::AttractiveHubbard(
     const double U  = params.getDouble("hubbard", "U");
     const double beta = params.getDouble("simulation", "beta");
     const double dtau = beta / nt_;    
+
+    fields_ = GHQField(nt_, ns_, rng);
 
     g_ = sqrt(0.5 * std::abs(U) * dtau);
     alpha_ = -1.0;
@@ -80,12 +82,12 @@ arma::vec AttractiveHubbard::invexpV(int l, int flv) {
 }
 
 /* --------------------------------------------------------------------------------------------- 
-/ Functions for MC sweeping and updates
+/ model updates' functions
 --------------------------------------------------------------------------------------------- */
 
 double AttractiveHubbard::det_ratio(arma::mat& G00, double delta, int i) {
     /*
-    / fermion det ratio using shermann morison formula, 
+    / fermion det ratio
     / this model has equal factorization, so just power to 2
     */
     double detR_flv = 1.0 + (1.0 - G00(i, i)) * delta; 
@@ -119,7 +121,7 @@ std::pair<double, double> AttractiveHubbard::local_update_ratio(std::vector<GF>&
 
 void AttractiveHubbard::update_greens_local(std::vector<GF>& GF, double delta, int l, int i) {
     /*
-    / update green's function locally
+    / update green's function locally using shermann morrison
     /   G'_{jk} = G_{jk} - Δ/Rσ * G_{ji} * (δ_{ik} - G_{ik})
     */
 

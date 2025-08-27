@@ -22,8 +22,6 @@ class DQMC {
 private:
     AttractiveHubbard& model_;
 
-    utility::random& rng_;
-
     bool isUnequalTime_;
 
     int nt_;
@@ -74,7 +72,7 @@ private:
 public:
 
     // Constructor
-    DQMC(const utility::parameters& params, AttractiveHubbard& model, utility::random& rng);
+    DQMC(const utility::parameters& params, AttractiveHubbard& model);
 
     // Getters
     double acc_rate() { return acc_rate_; }
@@ -90,4 +88,4 @@ public:
     void sweep_beta_to_0(std::vector<GF>& greens, std::vector<LDRStack>& propagation_stacks);
 
     void sweep_unequalTime(std::vector<GF>& greens, std::vector<LDRStack>& propagation_stacks);
-};
+};  

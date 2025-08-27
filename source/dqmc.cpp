@@ -2,8 +2,8 @@
 #include <update.h>
 
 // --- Constructor ---
-DQMC::DQMC(const utility::parameters& params, AttractiveHubbard& model, utility::random& rng)
-        : model_(model), rng_(rng), acc_rate_(0.0), avg_sgn_(1.0) 
+DQMC::DQMC(const utility::parameters& params, AttractiveHubbard& model)
+        : model_(model), acc_rate_(0.0), avg_sgn_(1.0) 
 {
     nt_ = params.getInt("simulation", "nt");
     n_stab_ = params.getInt("simulation", "n_stab");
@@ -334,7 +334,7 @@ void DQMC::sweep_0_to_beta(std::vector<GF>& greens, std::vector<LDRStack>& propa
         propagate_GF_forward(greens, l);
 
         // update HS field over space given time slice
-        update::local_update(rng_, model_, greens, l, acc_l);
+        update::local_update(model_.rng(), model_, greens, l, acc_l);
         acc_rate_ += acc_l / nt_;
 
         // Do the stabilization at interval time
@@ -393,7 +393,7 @@ void DQMC::sweep_beta_to_0(std::vector<GF>& greens, std::vector<LDRStack>& propa
         i_stack = stack_idx(l);
 
         // update HS field over space given time slice
-        update::local_update(rng_, model_, greens, l, acc_l);
+        update::local_update(model_.rng(), model_, greens, l, acc_l);
         acc_rate_ += acc_l / nt;
 
         propagate_GF_backward(greens, l);

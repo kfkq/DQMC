@@ -50,6 +50,7 @@ class AttractiveHubbard {
         int nt() const { return nt_; }
         int ns() const { return ns_; }
         int n_flavor() const { return 1; }
+        utility::random& rng() { return rng_; }
 
         double det_ratio(arma::mat& gtt, double delta, int i);
         std::pair<double, double> bosonic_ratio(int new_field, int old_field);
