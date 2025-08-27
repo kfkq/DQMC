@@ -22,6 +22,8 @@ class DQMC {
 private:
     AttractiveHubbard& model_;
 
+    utility::random& rng_;
+
     bool isUnequalTime_;
 
     int nt_;
@@ -72,7 +74,7 @@ private:
 public:
 
     // Constructor
-    DQMC(const utility::parameters& params, AttractiveHubbard& model);
+    DQMC(const utility::parameters& params, AttractiveHubbard& model, utility::random& rng);
 
     // Getters
     double acc_rate() { return acc_rate_; }

@@ -57,7 +57,7 @@ int main(int argc, char** argv) {
     int n_flavor = model.n_flavor();
 
     // DQMC simulation initialization
-    DQMC sim(params, model);
+    DQMC sim(params, model, rng);
 
     // propagation stacks and greens initialization
     std::vector<LDRStack> propagation_stacks(n_flavor);

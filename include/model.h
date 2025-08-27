@@ -10,6 +10,7 @@
 
 #include <stackngf.h>
 #include <stablelinalg.h>
+#include <field.h>
 #include <lattice.h>
 #include <utility.h>
 
@@ -29,17 +30,12 @@ class AttractiveHubbard {
         arma::mat expK_; 
         arma::mat invexpK_; 
 
-        //GHQField
-        arma::vec gamma_;
-        arma::vec eta_;
-        arma::imat fields_;
+        GHQField fields_;
         
         // Random number generator
         utility::random& rng_;
 
         arma::mat build_K_matrix(const Lattice& lat);
-        void init_GHQfields();
-
     public:
         AttractiveHubbard(const utility::parameters& params, const Lattice& lat, utility::random& rng);
 
@@ -49,15 +45,16 @@ class AttractiveHubbard {
         arma::vec expV(int l, int flv);
         arma::vec invexpV(int l, int flv);
 
-        const arma::imat& fields() const { return fields_; }
+        GHQField& fields() { return fields_; }
 
         int nt() const { return nt_; }
         int ns() const { return ns_; }
         int n_flavor() const { return 1; }
 
-        double acceptance_ratio(arma::mat& Gtt, double delta, int i);
-        void update_greens(arma::mat& gtt, double delta, int i);
-        double update_time_slice(std::vector<GF>& greens, int l);
+        double det_ratio(arma::mat& gtt, double delta, int i);
+        std::pair<double, double> bosonic_ratio(int new_field, int old_field);
+        std::pair<double, double> local_update_ratio(std::vector<GF>& GF, int l, int field_idx, int new_field);
+        void update_greens_local(std::vector<GF>& GF, double delta, int l, int field_idx);
 };
 
 namespace Observables {

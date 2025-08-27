@@ -10,7 +10,7 @@ AttractiveHubbard::AttractiveHubbard(
     const utility::parameters& params,
     const Lattice& lat,
     utility::random& rng
-) : rng_(rng)
+) : rng_(rng), fields_(GHQField(params.getDouble("simulation", "nt"), lat.n_cells(), rng))
 {    
     //
     t_  = params.getDouble("hubbard", "t");
@@ -29,8 +29,6 @@ AttractiveHubbard::AttractiveHubbard(
     arma::mat K = build_K_matrix(lat);
     expK_ = arma::expmat(-dtau * K);
     invexpK_ = arma::expmat(dtau * K);
-
-    init_GHQfields();
 } 
 
 // Helper function to build the kinetic matrix K for a square lattice
@@ -57,52 +55,26 @@ arma::mat AttractiveHubbard::build_K_matrix(const Lattice& lat) {
     return K;
 }
 
-void AttractiveHubbard::init_GHQfields() {    
-    gamma_.set_size(4);
-    eta_.set_size(4);
-    
-    double s6 = std::sqrt(6.0);
-
-    // Mapping l={-2,-1,1,2} to indices {0,1,2,3}
-    gamma_(0) = 1.0 - s6 / 3.0;
-    gamma_(1) = 1.0 + s6 / 3.0;
-    gamma_(2) = 1.0 + s6 / 3.0;
-    gamma_(3) = 1.0 - s6 / 3.0;
-
-    eta_(0) = -std::sqrt(2.0 * (3.0 + s6));
-    eta_(1) = -std::sqrt(2.0 * (3.0 - s6));
-    eta_(2) =  std::sqrt(2.0 * (3.0 - s6));
-    eta_(3) =  std::sqrt(2.0 * (3.0 + s6));
-
-    fields_.set_size(nt_, ns_);
-    // Fill with random {0, 1, 2, 3}
-    for(int t = 0; t < nt_; ++t) {
-        for(int i = 0; i < ns_; ++i) {
-            fields_(t, i) = rng_.rand_GHQField();
-        }
-    }
-}
-
 arma::vec AttractiveHubbard::expV(int l, int flv) {
     // For the attractive model, expV is the same for both flavors.
-    const int nv = fields_.n_cols;
+    const int nv = fields_.nv();
     arma::vec expV(nv);
 
     for (int i = 0; i < nv; ++i) {
-        int f = fields_(l, i);
-        expV(i) = std::exp(g_ * eta_(f));
+        int f = fields_.single_val(l, i);
+        expV(i) = std::exp(g_ * fields_.eta(f));
     }
     return expV;
 }
 
 arma::vec AttractiveHubbard::invexpV(int l, int flv) {
     // For the attractive model, expV is the same for both flavors.
-    const int nv = fields_.n_cols;
+    const int nv = fields_.nv();
     arma::vec invexpV(nv);
 
     for (int i = 0; i < nv; ++i) {
-        int f = fields_(l, i);
-        invexpV(i) = std::exp(-g_ * eta_(f));
+        int f = fields_.single_val(l, i);
+        invexpV(i) = std::exp(-g_ * fields_.eta(f));
     }
     return invexpV;
 }
@@ -111,71 +83,59 @@ arma::vec AttractiveHubbard::invexpV(int l, int flv) {
 / Functions for MC sweeping and updates
 --------------------------------------------------------------------------------------------- */
 
-double AttractiveHubbard::acceptance_ratio(arma::mat& G00, double delta, int i) {
+double AttractiveHubbard::det_ratio(arma::mat& G00, double delta, int i) {
     /*
-    / calculate the probability weight if fields updated
-    /   Rσ = 1 + (1 - G_{ii}) * \Delta
+    / fermion det ratio using shermann morison formula, 
+    / this model has equal factorization, so just power to 2
     */
-    return 1.0 + (1.0 - G00(i, i)) * delta; 
+    double detR_flv = 1.0 + (1.0 - G00(i, i)) * delta; 
+    return std::pow(detR_flv, 2);
 }
 
-void AttractiveHubbard::update_greens(arma::mat& g00, double delta, int i) {
+std::pair<double, double> AttractiveHubbard::bosonic_ratio(int new_field, int old_field) {
+    /*
+        bosonic term 
+    */
+   double d_eta = fields_.eta(new_field) - fields_.eta(old_field);
+   double bosonic_ratio = std::exp(alpha_ * g_ * d_eta);
+   double delta = (1.0 / bosonic_ratio) - 1.0;
+   return {bosonic_ratio, delta};
+}
+
+std::pair<double, double> AttractiveHubbard::local_update_ratio(std::vector<GF>& GF, int l, int field_idx, int new_field) {
+    /*
+        total local update ratio
+    */
+
+    int flv = 0;
+
+    int old_field = fields_.single_val(l, field_idx);
+    double gammaR = fields_.gamma(new_field) / fields_.gamma(old_field);
+    auto [bosonR, delta] = bosonic_ratio(new_field, old_field);
+    double detR = det_ratio(GF[flv].Gtt[l+1], delta, field_idx);
+
+    return {gammaR * bosonR * detR, delta};
+}
+
+void AttractiveHubbard::update_greens_local(std::vector<GF>& GF, double delta, int l, int i) {
     /*
     / update green's function locally
     /   G'_{jk} = G_{jk} - Δ/Rσ * G_{ji} * (δ_{ik} - G_{ik})
     */
-    double prefactor = delta / (1.0 + (1.0 - g00(i, i)) * delta);
-    arma::vec    U = g00.col(i);
-    arma::rowvec V = g00.row(i);
+
+    int flv = 0;
+
+    double prefactor = delta / (1.0 + (1.0 - GF[flv].Gtt[l+1](i, i)) * delta);
+    arma::vec    U = GF[flv].Gtt[l+1].col(i);
+    arma::rowvec V = GF[flv].Gtt[l+1].row(i);
     V(i) = V(i) - 1.0;
 
-    g00 += prefactor * U * V;
+    GF[flv].Gtt[l+1] += prefactor * U * V;
 }
 
-double AttractiveHubbard::update_time_slice(std::vector<GF>& greens, int l) {
-    /*
-    / Update Green's function and fields in one time slice by going through all space indices
-    */
-
-    int accepted_ns = 0;
-
-    // Create a randomized order of sites
-    std::vector<int> site_order(ns_);
-    for (int i = 0; i < ns_; ++i) {
-        site_order[i] = i;
-    }
-    std::shuffle(site_order.begin(), site_order.end(), rng_.get_generator());
-
-    for (int idx = 0; idx < ns_; ++idx) {
-        int i = site_order[idx];
-        
-        // 1. Propose a new state
-        int old_field = fields_(l, i);
-        int new_field;
-        do {
-            new_field = rng_.rand_GHQField();
-        } while (new_field == old_field); // make sure new field != old field
-
-        // 2. total acc_ratio = gamma_R * bosonic_R * fermionic_R
-        double gamma_ratio = gamma_(new_field) / gamma_(old_field);
-
-        double delta_eta = eta_(new_field) - eta_(old_field);
-        double bosonic_ratio = std::exp(alpha_ * g_ * delta_eta);
-        double delta = (1.0 / bosonic_ratio) - 1.0;
-        
-        double fermionic_ratio  = acceptance_ratio(greens[0].Gtt[l+1], delta, i);
-
-        double acc_ratio = bosonic_ratio * gamma_ratio * std::pow(fermionic_ratio, 2);
-        double metropolis_p = std::min(1.0, std::abs(acc_ratio));
-        if (rng_.bernoulli(metropolis_p)) {
-            accepted_ns += 1;
-            update_greens(greens[0].Gtt[l+1], delta, i);
-            fields_(l, i) = new_field;
-        }
-    }
-
-    return static_cast<double>(accepted_ns) / ns_;
-}
+/* --------------------------------------------------------------------------------------------- 
+/ List of observables
+--------------------------------------------------------------------------------------------- */
 
 namespace Observables {
 
