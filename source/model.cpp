@@ -135,6 +135,24 @@ void AttractiveHubbard::update_greens_local(std::vector<GF>& GF, double delta, i
     GF[flv].Gtt[l+1] += prefactor * U * V;
 }
 
+double AttractiveHubbard::global_action(const std::vector<GF>& greens) {
+    int flv = 0;
+    double S = -2.0 * greens[flv].log_det_M;
+
+    double logbosonR = 0.0;
+    double loggammaR = 0.0;
+
+    arma::imat fs = fields_.fields();
+    for (int i = 0; i < fs.n_elem; ++i) {
+        int f = fs(i);
+        logbosonR += alpha_ * g_ * fields_.eta(f);
+        loggammaR += std::log(fields_.gamma(f));
+    }
+
+    S -= logbosonR + loggammaR;
+    return S;
+}
+
 /* --------------------------------------------------------------------------------------------- 
 / List of observables
 --------------------------------------------------------------------------------------------- */

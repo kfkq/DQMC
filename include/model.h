@@ -1,9 +1,3 @@
-/*
-/   This module provides an implementation of attractive Hubbard model.
-/
-/   Author: Muhammad Gaffar
-*/
-
 #pragma once
 
 #include <armadillo>
@@ -56,6 +50,7 @@ class AttractiveHubbard {
         std::pair<double, double> bosonic_ratio(int new_field, int old_field);
         std::pair<double, double> local_update_ratio(std::vector<GF>& GF, int l, int field_idx, int new_field);
         void update_greens_local(std::vector<GF>& GF, double delta, int l, int field_idx);
+        double global_action(const std::vector<GF>& greens);
 };
 
 namespace Observables {
