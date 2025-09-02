@@ -9,23 +9,48 @@ import numpy as np
 import os
 import glob
 import argparse
+import configparser
 from pathlib import Path
 
 
-def load_scalar_data(results_dir="results"):
+def is_pt_enabled(param_file="parameters.in"):
     """
-    Load scalar observable data from all MPI rank files.
+    Check the parameters.in file to see if Parallel Tempering is enabled.
+    """
+    if not os.path.exists(param_file):
+        print(f"Warning: '{param_file}' not found. Assuming standard run (not Parallel Tempering).")
+        return False
+    
+    config = configparser.ConfigParser()
+    try:
+        config.read(param_file)
+        if 'ParallelTempering' in config and 'enabled' in config['ParallelTempering']:
+            return config['ParallelTempering'].getboolean('enabled')
+    except Exception as e:
+        print(f"Warning: Could not parse '{param_file}'. Assuming standard run. Error: {e}")
+    
+    return False
+
+
+def load_scalar_data(results_dir="results", pt_enabled=False):
+    """
+    Load scalar observable data from MPI rank files.
     
     Args:
         results_dir (str): Path to the results directory
+        pt_enabled (bool): If True, only load data from data_0.h5
         
     Returns:
         dict: Dictionary with observable names as keys and arrays of binned data as values
     """
-    # Find all data files
-    data_files = glob.glob(os.path.join(results_dir, "data_*.h5"))
+    if pt_enabled:
+        print("Parallel Tempering run detected. Analyzing data_0.h5 only.")
+        data_files = [os.path.join(results_dir, "data_0.h5")]
+    else:
+        print("Standard run detected. Aggregating data from all data_*.h5 files.")
+        data_files = glob.glob(os.path.join(results_dir, "data_*.h5"))
     
-    if not data_files:
+    if not os.path.exists(data_files[0]):
         raise FileNotFoundError(f"No data files found in {results_dir}")
     
     # Dictionary to store data for each observable
@@ -70,20 +95,23 @@ def load_scalar_data(results_dir="results"):
     return scalar_data
 
 
-def load_equaltime_data(results_dir="results"):
+def load_equaltime_data(results_dir="results", pt_enabled=False):
     """
-    Load equal-time observable data from all MPI rank files.
+    Load equal-time observable data from MPI rank files.
     
     Args:
         results_dir (str): Path to the results directory
+        pt_enabled (bool): If True, only load data from data_0.h5
         
     Returns:
         tuple: (real_space_data, k_space_data) dictionaries
     """
-    # Find all data files
-    data_files = glob.glob(os.path.join(results_dir, "data_*.h5"))
+    if pt_enabled:
+        data_files = [os.path.join(results_dir, "data_0.h5")]
+    else:
+        data_files = glob.glob(os.path.join(results_dir, "data_*.h5"))
     
-    if not data_files:
+    if not os.path.exists(data_files[0]):
         raise FileNotFoundError(f"No data files found in {results_dir}")
     
     # Dictionary to store data for each observable
@@ -111,15 +139,9 @@ def load_equaltime_data(results_dir="results"):
                     
                     # Process each equal-time observable in the bin
                     for obs_name in eqtime_group.keys():
-                        # Get the dataset
-                        dataset = eqtime_group[obs_name]
-                        # For equal-time data, we'll store the full array
-                        value = np.array(dataset)
-                        
-                        # Initialize list for this observable if not already done
+                        value = np.array(eqtime_group[obs_name])
                         if obs_name not in real_space_data:
                             real_space_data[obs_name] = []
-                        
                         real_space_data[obs_name].append(value)
             
             # Process k-space bins
@@ -132,34 +154,31 @@ def load_equaltime_data(results_dir="results"):
                     
                     # Process each equal-time observable in the bin
                     for obs_name in eqtime_group.keys():
-                        # Get the dataset (complex data)
-                        dataset = eqtime_group[obs_name]
-                        # For equal-time data, we'll store the full array
-                        value = np.array(dataset)
-                        
-                        # Initialize list for this observable if not already done
+                        value = np.array(eqtime_group[obs_name])
                         if obs_name not in k_space_data:
                             k_space_data[obs_name] = []
-                        
                         k_space_data[obs_name].append(value)
     
     return real_space_data, k_space_data
 
 
-def load_unequaltime_data(results_dir="results"):
+def load_unequaltime_data(results_dir="results", pt_enabled=False):
     """
-    Load unequal-time observable data from all MPI rank files.
+    Load unequal-time observable data from MPI rank files.
     
     Args:
         results_dir (str): Path to the results directory
+        pt_enabled (bool): If True, only load data from data_0.h5
         
     Returns:
         tuple: (real_space_data, k_space_data) dictionaries
     """
-    # Find all data files
-    data_files = glob.glob(os.path.join(results_dir, "data_*.h5"))
+    if pt_enabled:
+        data_files = [os.path.join(results_dir, "data_0.h5")]
+    else:
+        data_files = glob.glob(os.path.join(results_dir, "data_*.h5"))
     
-    if not data_files:
+    if not os.path.exists(data_files[0]):
         raise FileNotFoundError(f"No data files found in {results_dir}")
     
     # Dictionary to store data for each observable
@@ -187,15 +206,9 @@ def load_unequaltime_data(results_dir="results"):
                     
                     # Process each unequal-time observable in the bin
                     for obs_name in uneqtime_group.keys():
-                        # Get the dataset
-                        dataset = uneqtime_group[obs_name]
-                        # For unequal-time data, we'll store the full array
-                        value = np.array(dataset)
-                        
-                        # Initialize list for this observable if not already done
+                        value = np.array(uneqtime_group[obs_name])
                         if obs_name not in real_space_data:
                             real_space_data[obs_name] = []
-                        
                         real_space_data[obs_name].append(value)
             
             # Process k-space bins
@@ -208,20 +221,14 @@ def load_unequaltime_data(results_dir="results"):
                     
                     # Process each unequal-time observable in the bin
                     for obs_name in uneqtime_group.keys():
-                        # Get the dataset (complex data)
-                        dataset = uneqtime_group[obs_name]
-                        # For unequal-time data, we'll store the full array
-                        value = np.array(dataset)
-                        
-                        # Initialize list for this observable if not already done
+                        value = np.array(uneqtime_group[obs_name])
                         if obs_name not in k_space_data:
                             k_space_data[obs_name] = []
-                        
                         k_space_data[obs_name].append(value)
     
     return real_space_data, k_space_data
 
-
+# ... (jackknife and other helper functions remain unchanged) ...
 def jackknife_analysis(data):
     """
     Perform jackknife analysis on data.
@@ -646,17 +653,16 @@ def main():
     args = parser.parse_args()
     
     try:
+        # Check if Parallel Tempering is enabled by reading parameters.in
+        pt_enabled = is_pt_enabled("parameters.in")
+
         # Load lattice information
         lattice_info = load_lattice_info(args.directory)
         
-        # Load scalar data
-        scalar_data = load_scalar_data(args.directory)
-        
-        # Load equal-time data (both real space and k-space)
-        eqtime_data_r, eqtime_data_k = load_equaltime_data(args.directory)
-        
-        # Load unequal-time data (both real space and k-space)
-        uneqtime_data_r, uneqtime_data_k = load_unequaltime_data(args.directory)
+        # Load data based on whether PT is enabled
+        scalar_data = load_scalar_data(args.directory, pt_enabled=pt_enabled)
+        eqtime_data_r, eqtime_data_k = load_equaltime_data(args.directory, pt_enabled=pt_enabled)
+        uneqtime_data_r, uneqtime_data_k = load_unequaltime_data(args.directory, pt_enabled=pt_enabled)
         
         if not scalar_data and not eqtime_data_r and not eqtime_data_k and not uneqtime_data_r:
             print("No observables found in data files")

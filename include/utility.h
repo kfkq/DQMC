@@ -236,6 +236,29 @@ namespace utility {
                 return default_value;
             }
         }
+
+        // Get vector of doubles from a comma-separated string
+        std::vector<double> getDoubleVector(const std::string& section, const std::string& key) const {
+            std::string value_str = getString(section, key);
+            std::vector<double> result;
+            std::stringstream ss(value_str);
+            std::string item;
+
+            while (std::getline(ss, item, ',')) {
+                trim(item); // Use the existing static trim function
+                if (item.empty()) continue; // Skip empty entries
+
+                try {
+                    // Handle underscores for consistency
+                    std::string clean_item = item;
+                    clean_item.erase(std::remove(clean_item.begin(), clean_item.end(), '_'), clean_item.end());
+                    result.push_back(std::stod(clean_item));
+                } catch (const std::exception&) {
+                    throw std::runtime_error("Cannot convert '" + item + "' to double in list for key '" + key + "'");
+                }
+            }
+            return result;
+        }
         
         // Check if section exists
         bool hasSection(const std::string& section) const {

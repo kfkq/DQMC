@@ -9,7 +9,8 @@ AttractiveHubbard::AttractiveHubbard(
 
     const utility::parameters& params,
     const Lattice& lat,
-    utility::random& rng
+    utility::random& rng,
+    double replica_beta
 ) : rng_(rng)
 {    
     //
@@ -19,8 +20,7 @@ AttractiveHubbard::AttractiveHubbard(
     nt_ = params.getDouble("simulation", "nt");
 
     const double U  = params.getDouble("hubbard", "U");
-    const double beta = params.getDouble("simulation", "beta");
-    const double dtau = beta / nt_;    
+    const double dtau = replica_beta / nt_;    
 
     fields_ = GHQField(nt_, ns_, rng);
 
@@ -136,6 +136,9 @@ void AttractiveHubbard::update_greens_local(std::vector<GF>& GF, double delta, i
 }
 
 double AttractiveHubbard::global_action(const std::vector<GF>& greens) {
+    /*
+        S = -log(Weight)
+    */
     int flv = 0;
     double S = -2.0 * greens[flv].log_det_M;
 

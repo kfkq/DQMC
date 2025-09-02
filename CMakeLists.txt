@@ -40,18 +40,19 @@ include_directories(
     ${HDF5_INCLUDE_DIRS}
 )
 
-# Source files
-set(SOURCES
+# Source files for main executable
+set(MAIN_SOURCES
     source/main.cpp
     source/model.cpp
     source/dqmc.cpp
+    source/update.cpp
     source/stablelinalg.cpp
 )
 
-# Add executable
-add_executable(dqmc ${SOURCES})
+# Add main executable
+add_executable(dqmc ${MAIN_SOURCES})
 
-# Link libraries
+# Link libraries for main executable
 target_link_libraries(dqmc
     ${MPI_CXX_LIBRARIES}
     ${ARMADILLO_LIBRARIES}
@@ -60,8 +61,7 @@ target_link_libraries(dqmc
     ${HDF5_HL_LIBRARIES}
 )
 
-# Set Armadillo to use MKL
+# Set Armadillo to use MKL for main executable
 target_compile_definitions(dqmc PRIVATE 
     ARMA_USE_MKL_ALLOC
     ARMA_USE_MKL
-)

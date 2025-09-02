@@ -31,7 +31,7 @@ class AttractiveHubbard {
 
         arma::mat build_K_matrix(const Lattice& lat);
     public:
-        AttractiveHubbard(const utility::parameters& params, const Lattice& lat, utility::random& rng);
+        AttractiveHubbard(const utility::parameters& params, const Lattice& lat, utility::random& rng, double replica_beta);
 
         // Getters
         const arma::mat& expK(int flv) const { return expK_; }

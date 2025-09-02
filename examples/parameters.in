@@ -8,11 +8,16 @@ t =  1.0                        # Hopping parameters
 mu = -0.1                       # Chemical potential
 
 [simulation]
-beta = 5.0                      # Inverse temperature
-nt = 50                        # Number of Imaginary time step
-n_therms = 1_000                 # Number of thermalization sweeps
+beta = 1.0                      # Inverse temperature
+nt = 40                        # Number of Imaginary time step
+n_therms = 10_000                 # Number of thermalization sweeps
 n_sweeps = 50                   # Number of Monte Carlo sweeps
 n_bins = 200                    # Number of total bins. each bin contain average observable after n_sweeps 
 n_stab = 9                      # Length of numerical stabilization in imaginary time propagation
 symm = false
-isMeasureUnequalTime = true     # whether to measure unequaltime
+isMeasureUnequalTime = false     # whether to measure unequaltime
+
+[ParallelTempering]
+enabled = true
+sweep_steps = 1
+betas = 1.0, 1.0, 1.0, 1.0

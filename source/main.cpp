@@ -4,6 +4,7 @@
 #include <lattice.h>
 #include <model.h>
 #include <dqmc.h>
+#include <update.h>
 #include <measurementh5.h>
 #include <utility.h>
 
@@ -30,15 +31,50 @@ int main(int argc, char** argv) {
     int master = 0;
 
     // ----------------------------------------------------------------- 
-    //                       DQMC Initialization
+    //                 Parameter Handling & State Management
     // -----------------------------------------------------------------
-
-    // Initialize the random number generator with a seed
+    utility::parameters params("parameters.in");
     utility::random rng(std::time(nullptr) + rank);
 
-    // parse parameters file
-    utility::parameters params("parameters.in");
+    bool pt_enabled = params.getBool("ParallelTempering", "enabled", false);
+    double my_beta;
+    int exchange_step;
+    //for replica moves tracker
+    int exchange_attempt = 0;
+    int exchange_accepted = 0; // only track master
+    int n_replicas = 1;
 
+    if (pt_enabled) {
+        std::vector<double> betas = params.getDoubleVector("ParallelTempering", "betas");
+        n_replicas = betas.size();
+
+        if (rank == master) {
+            utility::io::print_info("Parallel Tempering enabled.\n");
+            if (n_replicas != world_size) {
+                std::cerr << "ERROR: The number of betas (" << n_replicas 
+                          << ") in parameters.in must match the number of MPI processes (" 
+                          << world_size << ")." << std::endl;
+                MPI_Abort(MPI_COMM_WORLD, 1);
+            }
+            if (world_size % 2 != 0) {
+                 std::cerr << "ERROR: currently number of processor ( nprocs = " << world_size 
+                           << ") need to be even for replica exchange" << std::endl;
+                MPI_Abort(MPI_COMM_WORLD, 1);
+            }
+        }
+        
+        my_beta = betas[rank];
+        exchange_step = params.getInt("ParallelTempering", "sweep_steps");
+    } else {
+        if (rank == master) {
+            utility::io::print_info("Standard DQMC run (Parallel Tempering disabled).\n");
+        }
+        my_beta = params.getDouble("simulation", "beta");
+    }
+
+    // ----------------------------------------------------------------- 
+    //                       DQMC Initialization
+    // -----------------------------------------------------------------
     int n_sweeps = params.getInt("simulation", "n_sweeps");
     int n_therms = params.getInt("simulation", "n_therms");
     int n_bins = params.getInt("simulation", "n_bins");
@@ -53,7 +89,7 @@ int main(int argc, char** argv) {
     if (rank == master) lat.save_info("results/info");
 
     // Model initialization
-    AttractiveHubbard model(params, lat, rng);
+    AttractiveHubbard model(params, lat, rng, my_beta);
     int n_flavor = model.n_flavor();
 
     // DQMC simulation initialization
@@ -93,21 +129,31 @@ int main(int argc, char** argv) {
     utility::io::print_info("Thermalization done in ", dt_therm, " seconds\n");
 
     // measurement sweeps
+    int bin_sweeps = n_bins * n_sweeps;
     double local_time = 0.0;
     const auto t0_bin = std::chrono::steady_clock::now(); 
 
-    for (int ibin = 0; ibin < n_bins; ++ibin) { 
+    for (size_t isweep = 1; isweep <= bin_sweeps; ++ isweep) {
 
-        for (int isweep = 0; isweep < n_sweeps; ++isweep) {
-
-            sim.sweep_0_to_beta(greens, propagation_stacks);
-            sim.sweep_beta_to_0(greens, propagation_stacks);
-            sim.sweep_unequalTime(greens, propagation_stacks);
-            measurements.measure(greens, lat);
-
+        // replica exchange
+        if (pt_enabled && (isweep % exchange_step == 0)) {
+            MPI_Barrier(MPI_COMM_WORLD); // make sure all procs sync at this point
+            update::replica_exchange(rank, world_size, rng,
+                                    exchange_attempt, exchange_accepted, 
+                                    model, sim,
+                                    greens, propagation_stacks);
         }
 
-        measurements.accumulate(lat);
+        // basic sweep
+        sim.sweep_0_to_beta(greens, propagation_stacks);
+        sim.sweep_beta_to_0(greens, propagation_stacks);
+        sim.sweep_unequalTime(greens, propagation_stacks);
+        measurements.measure(greens, lat);
+
+        // measurement
+        if (isweep % n_sweeps == 0) {
+            measurements.accumulate(lat);
+        }
     }
 
     local_time = std::chrono::duration<double>(
