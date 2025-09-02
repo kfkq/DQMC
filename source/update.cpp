@@ -31,18 +31,17 @@ namespace update {
         acc_rate = static_cast<double>(accepted) / nv;
     }
 
-    int partner_rank(int& rank, int& world_size, int& exchange_attempt) {
-        int p = exchange_attempt % 2;
-        int partner;
-        if ( (rank+p)%2 == 0 ) {
-            partner = (rank+1);
+    int partner_rank(const int rank, const int world_size, const int exchange_attempt) {
+        const bool is_even_attempt = (exchange_attempt % 2 == 0);
+        int partner_offset;
+
+        if (is_even_attempt) {
+            partner_offset = (rank % 2 == 0) ? 1 : -1;
         } else {
-            partner = (rank-1); 
+            partner_offset = (rank % 2 == 0) ? -1 : 1;
         }
-        if (partner < 0) {
-            partner += world_size;
-        }
-        return partner;
+
+        return (rank + partner_offset + world_size) % world_size;
     }
 
     void replica_exchange(int rank, int world_size, utility::random& rng,

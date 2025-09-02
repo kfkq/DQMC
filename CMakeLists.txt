@@ -65,3 +65,4 @@ target_link_libraries(dqmc
 target_compile_definitions(dqmc PRIVATE 
     ARMA_USE_MKL_ALLOC
     ARMA_USE_MKL
+)
