@@ -39,6 +39,9 @@ namespace update {
         } else {
             partner = (rank-1); 
         }
+        if (partner < 0) {
+            partner += world_size;
+        }
         return partner;
     }
 
