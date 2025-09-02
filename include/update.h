@@ -11,7 +11,7 @@ namespace update {
     void local_update(utility::random& rng, AttractiveHubbard& model, std::vector<GF>& GF, int l, double& acc_rate);
 
     // Declaration for partner_rank
-    int partner_rank(int& rank, int& world_size, int& exchange_attempt);
+    int partner_rank(const int rank, const int world_size, const int exchange_attempt);
 
     // Declaration for replica_exchange
     void replica_exchange(int rank, int world_size, utility::random& rng,
