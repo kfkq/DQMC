@@ -14,7 +14,7 @@ namespace update {
     int partner_rank(int& rank, int& world_size, int& exchange_attempt);
 
     // Declaration for replica_exchange
-    void replica_exchange(int& rank, int& world_size, utility::random& rng,
+    void replica_exchange(int rank, int world_size, utility::random& rng,
                         int& exchange_attempt, int& exchange_accepted,
                         AttractiveHubbard& model, DQMC& sim, 
                         std::vector<GF>& greens, std::vector<LDRStack>& propagation_stacks);

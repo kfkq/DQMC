@@ -3,21 +3,21 @@ L1 = 4
 L2 = 4
 
 [hubbard]
-U = 4.0                        # On-site interaction strength
+U = 10.0                        # On-site interaction strength
 t =  1.0                        # Hopping parameters
-mu = -0.1                       # Chemical potential
+mu = -0.4                       # Chemical potential
 
 [simulation]
-beta = 1.0                      # Inverse temperature
-nt = 40                        # Number of Imaginary time step
-n_therms = 10_000                 # Number of thermalization sweeps
-n_sweeps = 50                   # Number of Monte Carlo sweeps
-n_bins = 200                    # Number of total bins. each bin contain average observable after n_sweeps 
-n_stab = 9                      # Length of numerical stabilization in imaginary time propagation
+beta = 5.0                      # Inverse temperature
+nt = 100                        # Number of Imaginary time step
+n_therms = 2000                 # Number of thermalization sweeps
+n_sweeps = 40                   # Number of Monte Carlo sweeps
+n_bins = 1000                    # Number of total bins. each bin contain average observable after n_sweeps 
+n_stab = 5                      # Length of numerical stabilization in imaginary time propagation
 symm = false
 isMeasureUnequalTime = false     # whether to measure unequaltime
 
 [ParallelTempering]
 enabled = true
-sweep_steps = 1
-betas = 1.0, 1.0, 1.0, 1.0
+sweep_steps = 20
+betas = 5.0, 4.5, 4.0, 3.5, 3.0, 2.5

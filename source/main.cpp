@@ -185,6 +185,13 @@ int main(int argc, char** argv) {
             "Average acceptance rate = ", std::fixed, std::setprecision(4), total_acc_rate, '\n',
             "Max, Mean Precision Error = ", std::scientific, std::setprecision(4), sim.max_err(), ", ", sim.mean_err(), '\n'
         );
+
+        if (pt_enabled) {
+            const double exchange_rate = static_cast<double>(exchange_accepted) / exchange_attempt;
+            utility::io::print_info(
+                "Parallel tempering exchange rate = ", std::fixed, std::setprecision(4), exchange_rate, '\n'
+            );
+        }
     }
 
     MPI_Finalize();
