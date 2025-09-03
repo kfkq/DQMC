@@ -36,8 +36,8 @@ python ../scripts/analysis.py
 ```
 
 ## TODO
-- Global update through replica exchange
-- Checkerboard implementation
-- Optimization through delayed update and submatrix update (SciPost Phys. 18, 055)
-- Canonical ensemble DQMC (Phys. Rev. E 107, 055302)
-- Sign Problem mitigation with self-consistent constraint (Phys. Rev. B 99, 045108)
+- [x] Global update through replica exchange
+- [ ] Checkerboard implementation
+- [ ] Optimization through delayed update and submatrix update (SciPost Phys. 18, 055)
+- [ ] Canonical ensemble DQMC (Phys. Rev. E 107, 055302)
+- [ ] Sign Problem mitigation with self-consistent constraint (Phys. Rev. B 99, 045108)
