@@ -360,9 +360,8 @@ void DQMC::sweep_0_to_beta(std::vector<GF>& greens, std::vector<LDRStack>& propa
             }
 
             if (max_error > 1e-6) {
-                std::cerr << "GF forward precision reach beyond threshold > 1e-6. Try reducing n_stab or increasing nt. Error: " 
+                std::cerr << "WARNING: GF forward precision > 1e-6. Reduce n_stab or increasing nt. Error: "
                           << max_error << std::endl;
-                std::exit(EXIT_FAILURE);
             }
         }
     }
@@ -421,9 +420,8 @@ void DQMC::sweep_beta_to_0(std::vector<GF>& greens, std::vector<LDRStack>& propa
             }
 
             if (max_error > 1e-6) {
-                std::cerr << "GF backward precision reach beyond threshold > 1e-6. Try reducing n_stab or increasing nt. Error: " 
+                std::cerr << "WARNING: GF backward precision > 1e-6. Reduce n_stab or increasing nt. Error: "
                           << max_error << std::endl;
-                std::exit(EXIT_FAILURE);
             }
         }
     }
@@ -480,9 +478,8 @@ void DQMC::sweep_unequalTime(std::vector<GF>& greens, std::vector<LDRStack>& pro
             }
 
             if (max_error > 1e-6) {
-                std::cerr << "GF unequaltime precision reach beyond threshold > 1e-6. Try reducing n_stab or increasing nt. Error: " 
+                std::cerr << "WARNING: GF unequaltime precision > 1e-6. Reduce n_stab or increasing nt. Error: " 
                           << max_error << std::endl;
-                std::exit(EXIT_FAILURE);
             }
         }
     }
