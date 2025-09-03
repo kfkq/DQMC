@@ -31,6 +31,8 @@ AttractiveHubbard::AttractiveHubbard(
     arma::mat K = build_K_matrix(lat);
     expK_ = arma::expmat(-dtau * K);
     invexpK_ = arma::expmat(dtau * K);
+    expKhalf_ = arma::expmat(-0.5 * dtau * K);
+    invexpKhalf_ = arma::expmat(0.5 * dtau * K);
 } 
 
 // Helper function to build the kinetic matrix K for a square lattice

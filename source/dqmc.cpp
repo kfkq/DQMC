@@ -285,6 +285,34 @@ void DQMC::stabilize_unequalTime(GF& greens, stablelinalg::LDR& Bt0, stablelinal
 /
 -------------------------------------------------------------------------------- */
 
+void DQMC::half_warp(std::vector<GF>& GF_tosymm, std::vector<GF>& GF_asymm) {
+    /*
+    / half-warp green's function before measurement
+    / calculate symmetric GF (GF_tosymm) using asymmetric GF (GF_asymm)
+    */
+
+    int n_flavor = model_.n_flavor();
+    int nt = model_.nt();
+
+    for (int flv = 0; flv < n_flavor; ++flv) {
+        const arma::mat& expKhalf = model_.expK_half(flv);
+        const arma::mat& invexpKhalf = model_.invexpK_half(flv);
+
+        // Always half-warp the equal-time GF
+        GF_tosymm[flv].Gtt[0] = invexpKhalf * GF_asymm[flv].Gtt[0] * expKhalf;
+
+        // If unequal time, half-warp the rest
+        if (isUnequalTime_) {
+            GF_tosymm[flv].Gt0[0] = invexpKhalf * GF_asymm[flv].Gt0[0] * expKhalf;
+            GF_tosymm[flv].G0t[0] = invexpKhalf * GF_asymm[flv].G0t[0] * expKhalf;
+            for (int t = 1; t < nt; ++t) {
+                GF_tosymm[flv].Gtt[t] = invexpKhalf * GF_asymm[flv].Gtt[t] * expKhalf;
+                GF_tosymm[flv].Gt0[t] = invexpKhalf * GF_asymm[flv].Gt0[t] * expKhalf;
+                GF_tosymm[flv].G0t[t] = invexpKhalf * GF_asymm[flv].G0t[t] * expKhalf;
+            }
+        }
+    }
+}
 
 double DQMC::check_error(const arma::mat& Gtt_temp, const arma::mat& Gtt) {
     /*

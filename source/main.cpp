@@ -72,6 +72,8 @@ int main(int argc, char** argv) {
         my_beta = params.getDouble("simulation", "beta");
     }
 
+    bool symmetric = params.getBool("simulation", "symmetric", false);
+
     // ----------------------------------------------------------------- 
     //                       DQMC Initialization
     // -----------------------------------------------------------------
@@ -101,6 +103,12 @@ int main(int argc, char** argv) {
     for (int flv = 0; flv < n_flavor; flv++) {
         propagation_stacks[flv] = sim.init_stacks(flv);
         greens[flv]             = sim.init_greenfunctions(propagation_stacks[flv]);
+    }
+
+    // init greens_symm object
+    std::vector<GF>  greens_symm(n_flavor);
+    if (symmetric) { // just dummy copy
+        greens_symm = greens; 
     }
 
     // measurement container
@@ -148,6 +156,12 @@ int main(int argc, char** argv) {
         sim.sweep_0_to_beta(greens, propagation_stacks);
         sim.sweep_beta_to_0(greens, propagation_stacks);
         sim.sweep_unequalTime(greens, propagation_stacks);
+
+        // half-warp green's function
+        if (symmetric) {
+            sim.half_warp(greens_symm, greens);
+        }
+
         measurements.measure(greens, lat);
 
         // measurement

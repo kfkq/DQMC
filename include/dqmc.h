@@ -83,6 +83,9 @@ public:
     LDRStack init_stacks(int flv);
     GF init_greenfunctions(LDRStack& propagation_stack);
 
+    //public utilities
+    void half_warp(std::vector<GF>& GF_tosymm, std::vector<GF>& GF_asymm);
+
     // sweep
     void sweep_0_to_beta(std::vector<GF>& greens, std::vector<LDRStack>& propagation_stacks);
     void sweep_beta_to_0(std::vector<GF>& greens, std::vector<LDRStack>& propagation_stacks);

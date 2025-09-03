@@ -23,6 +23,8 @@ class AttractiveHubbard {
         // Matrices
         arma::mat expK_; 
         arma::mat invexpK_; 
+        arma::mat expKhalf_;
+        arma::mat invexpKhalf_;
 
         GHQField fields_;
         
@@ -36,6 +38,8 @@ class AttractiveHubbard {
         // Getters
         const arma::mat& expK(int flv) const { return expK_; }
         const arma::mat& invexpK(int flv) const { return invexpK_; }
+        const arma::mat& expK_half(int flv) const { return expKhalf_; }
+        const arma::mat& invexpK_half(int flv) const { return invexpKhalf_; }
         arma::vec expV(int l, int flv);
         arma::vec invexpV(int l, int flv);
 
